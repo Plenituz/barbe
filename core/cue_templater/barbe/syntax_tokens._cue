@@ -1,0 +1,121 @@
+package barbe
+
+//These don't work
+
+#TokenLiteral: {
+	Type: "literal_value"
+	Value: string | number | bool | bytes | null | _|_
+}
+
+#TokenScopeTraversal: {
+	Type: "scope_traversal"
+	Traversal: [...#TraverseItem]
+}
+
+#TraverseItemNamed: {
+	Type: "attr"
+	Name: string
+}
+#TraverseItemIndexed: {
+	Type: "index"
+	Index: number
+}
+#TraverseItem: #TraverseItemNamed | #TraverseItemIndexed
+
+#TokenFunctionCall: {
+	Type: "function_call"
+	FunctionName: string
+	FunctionArgs: [...#TokenAny]
+}
+
+#TokenTemplate: {
+	Type: "template"
+	Parts: [...#TokenAny]
+}
+
+#ObjectConstItem: {
+	Key: string
+	Value: #TokenAny
+}
+#TokenObjectConst: {
+	Type: "object_const"
+	ObjectConst: [...#ObjectConstItem]
+}
+
+#TokenArrayConst: {
+	Type: "array_const"
+	ArrayConst: [...#TokenAny]
+}
+
+#TokenIndexAccess: {
+	Type: "index_access"
+	IndexCollection: #TokenAny
+	IndexKey: #TokenAny
+}
+
+#TokenFor: {
+	Type: "for"
+	ForKeyVar: string | _|_
+	ForValVar: string
+	ForCollExpr: #TokenAny
+	ForKeyExpr: #TokenAny | _|_
+	ForValExpr: #TokenAny
+	ForCondExpr: #TokenAny | _|_
+}
+
+#TokenRelativeTraversal: {
+	Type: "relative_traversal"
+	Source: #TokenAny
+	Traversal: [...#TraverseItem]
+}
+
+#TokenConditional: {
+	Type: "conditional"
+	Condition: #TokenAny
+	TrueResult: #TokenAny
+	FalseResult: #TokenAny
+}
+
+#TokenBinaryOp: {
+	Type: "binary_op"
+	RightHandSide: #TokenAny
+	Operator: string
+	LeftHandSide: #TokenAny
+}
+
+#TokenUnaryOp: {
+	Type: "unary_op"
+	RightHandSide: #TokenAny
+	Operator: string
+}
+
+#TokenParens: {
+	Type: "parens"
+	Source: #TokenAny
+}
+
+#TokenSplat: {
+	Type: "splat"
+	Source: #TokenAny
+	SplatEach: #TokenAny
+}
+
+#TokenAnonymous: {
+	Type: "anon"
+}
+
+#TokenAny: #TokenLiteral |
+#TokenScopeTraversal |
+#TokenFunctionCall |
+#TokenTemplate |
+#TokenObjectConst |
+#TokenArrayConst |
+#TokenIndexAccess |
+#TokenFor |
+#TokenRelativeTraversal |
+#TokenConditional |
+#TokenBinaryOp |
+#TokenUnaryOp |
+#TokenParens |
+#TokenSplat |
+#TokenAnonymous

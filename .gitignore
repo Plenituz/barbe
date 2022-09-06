@@ -1,0 +1,7 @@
+test
+dist/
+bin/
+.idea/
+
+*.exe
+*.zip
