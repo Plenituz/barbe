@@ -1,6 +1,7 @@
 package jsonnet_templater
 
 import (
+	"barbe/core"
 	"context"
 	"encoding/json"
 	"github.com/google/go-jsonnet"
@@ -10,7 +11,6 @@ import (
 	"os"
 	"path"
 	"regexp"
-	"barbe/core"
 	"strings"
 )
 
@@ -23,7 +23,7 @@ type sugarBag struct {
 	Name   string
 	Type   string
 	Labels []string
-	Value  map[string]interface{}
+	Value  interface{}
 }
 
 func applyTemplate(ctx context.Context, container *core.ConfigContainer, templates []core.FileDescription) error {
@@ -40,6 +40,7 @@ func applyTemplate(ctx context.Context, container *core.ConfigContainer, templat
 	}
 	vm.ExtCode("container", string(ctxObjJson))
 	vm.ExtCode("barbe", Builtins)
+	vm.ExtVar("barbe_output_dir", ctx.Value("maker").(*core.Maker).OutputDir)
 	vm.ExtCode("env", env)
 	vm.NativeFunction(&jsonnet.NativeFunction{
 		Name:   "regexFindAllSubmatch",
@@ -101,24 +102,11 @@ func applyTemplate(ctx context.Context, container *core.ConfigContainer, templat
 		parsedContainers = append(parsedContainers, m)
 	}
 
-	for i, c := range parsedContainers {
-		for j, v := range c.Databags {
-			syntaxToken := core.SyntaxToken{
-				Type:        core.TokenTypeObjectConst,
-				ObjectConst: make([]core.ObjectConstItem, 0, len(v.Value)),
-			}
-			for attr, value := range v.Value {
-				if core.InterfaceIsNil(value) {
-					continue
-				}
-				item, err := core.DecodeValue(value)
-				if err != nil {
-					return errors.Wrap(err, "error decoding syntax token from jsonnet template")
-				}
-				syntaxToken.ObjectConst = append(syntaxToken.ObjectConst, core.ObjectConstItem{
-					Key:   attr,
-					Value: item,
-				})
+	for _, c := range parsedContainers {
+		for _, v := range c.Databags {
+			token, err := core.DecodeValue(v.Value)
+			if err != nil {
+				return errors.Wrap(err, "error decoding syntax token from jsonnet template")
 			}
 
 			if v.Labels == nil {
@@ -128,10 +116,7 @@ func applyTemplate(ctx context.Context, container *core.ConfigContainer, templat
 				Name:   v.Name,
 				Type:   v.Type,
 				Labels: v.Labels,
-				Value:  syntaxToken,
-			}
-			if v.Name == "request-log_64cab7657bddc8663172702f59e27be6_ddb_replica_ind_sclpol_read" {
-				log.Ctx(ctx).Debug().Msgf("%#v", bag, i, j)
+				Value:  token,
 			}
 			err = container.Insert(bag)
 			if err != nil {

@@ -1,4 +1,4 @@
-local barbe = {
+    local barbe = {
     regexFindAllSubmatch:: std.native("regexFindAllSubmatch"),
 
     flatten(arr)::
@@ -23,9 +23,10 @@ local barbe = {
             ,
             if root.Type == "anon" ||
                 root.Type == "literal_value" ||
-                root.Type == "scope_traversal" ||
-                root.Type == "relative_traversal" then
+                root.Type == "scope_traversal" then
                 null
+            else if root.Type == "relative_traversal" then
+                barbe.accumulateTokens(root.Source, visitor)
             else if root.Type == "splat" then
                 [
                     barbe.accumulateTokens(root.Source, visitor),
@@ -206,7 +207,7 @@ local barbe = {
         if traverse.Type == "attr" then
             local rootObj = barbe.asVal(root);
             if !std.isObject(rootObj) then
-                error "<showuser>cannot find attribute '" + traverse.Name + "' on non-object '" + errorPrefix +"'</showuser>"
+                error "<showuser>cannot find attribute '" + traverse.Name + "' on non-object (" + std.get(root, "Type", "?") + ") '" + errorPrefix +"'</showuser>"
             else if !std.objectHas(rootObj, traverse.Name) then
                 error "<showuser>cannot find attribute '" + traverse.Name + "' on object '" + errorPrefix +"'</showuser>"
             else
@@ -406,7 +407,7 @@ local barbe = {
     //string concatenation for syntax tokens
     concatStrArr(token):: {
             Type: "template",
-            Parts: barbe.flatten(barbe.asTemplateStr(token.ArrayConst).Parts)
+            Parts: barbe.flatten(barbe.asTemplateStr(std.get(token, "ArrayConst", [])).Parts)
         },
 
     appendToTemplate(source, toAdd):: {

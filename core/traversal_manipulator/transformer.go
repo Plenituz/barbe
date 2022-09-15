@@ -1,8 +1,8 @@
 package traversal_manipulator
 
 import (
-	"context"
 	"barbe/core"
+	"context"
 )
 
 type TraversalManipulator struct{}
@@ -18,6 +18,11 @@ func (t TraversalManipulator) Transform(ctx context.Context, data *core.ConfigCo
 	}
 
 	err = mapTraversals(ctx, data)
+	if err != nil {
+		return err
+	}
+
+	err = mapTokens(ctx, data)
 	if err != nil {
 		return err
 	}

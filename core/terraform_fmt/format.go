@@ -1,13 +1,14 @@
 package terraform_fmt
 
 import (
+	"barbe/core"
+	"barbe/core/chown_util"
 	"context"
 	"errors"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/rs/zerolog/log"
 	"os"
 	"path"
-	"barbe/core"
 	"strings"
 )
 
@@ -82,10 +83,15 @@ func (t TerraformFormatter) Format(ctx context.Context, data *core.ConfigContain
 	if err != nil {
 		return err
 	}
+	defer o.Close()
+
 	_, err = f.WriteTo(o)
 	if err != nil {
 		return err
 	}
+
+	chown_util.TryRectifyRootFiles(ctx, []string{outputPath})
+
 	return nil
 }
 

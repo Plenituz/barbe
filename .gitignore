@@ -1,7 +1,9 @@
 test
 dist/
 bin/
+pkg/
 .idea/
+playground/
 
 *.exe
 *.zip

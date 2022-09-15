@@ -9,7 +9,7 @@ import (
 
 var rootCmd = &cobra.Command{
 	Use:   "barbe",
-	Short: "A programmable abstraction layer for any configuration language",
+	Short: "A programmable syntax manipulation engine",
 }
 
 func init() {
@@ -24,6 +24,7 @@ func init() {
 	rootCmd.AddCommand(
 		versionCmd,
 		generateCmd,
+		applyCmd,
 	)
 	rootCmd.CompletionOptions.HiddenDefaultCmd = true
 

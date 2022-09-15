@@ -1,30 +1,35 @@
 package cmd
 
 import (
-	"context"
-	"github.com/rs/zerolog/log"
-	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
-	"os"
-	"path"
-	"path/filepath"
 	"barbe/cli/logger"
 	"barbe/core"
+	"barbe/core/aws_session_provider"
+	"barbe/core/buildkit_runner"
+	"barbe/core/chown_util"
 	"barbe/core/hcl_parser"
+	"barbe/core/json_parser"
 	"barbe/core/jsonnet_templater"
 	"barbe/core/raw_file"
-	"barbe/core/s3_bucket_creator"
 	"barbe/core/simplifier_transform"
 	"barbe/core/terraform_fmt"
 	"barbe/core/traversal_manipulator"
 	"barbe/core/zipper_fmt"
+	"context"
+	"github.com/rs/zerolog/log"
+	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
+	"io/fs"
+	"os"
+	"path"
+	"path/filepath"
 	"strings"
 )
 
 var generateCmd = &cobra.Command{
-	Use:   "generate [GLOB...]",
-	Short: "Generate files out of abstracted templates",
-	Args:  cobra.ArbitraryArgs,
+	Use:     "generate [GLOB...]",
+	Short:   "Generate files based on the given configuration",
+	Args:    cobra.ArbitraryArgs,
+	Example: "barbe generate config.hcl --output dist\nbarbe generate **/*.hcl --output dist",
 	Run: func(cmd *cobra.Command, args []string) {
 		if err := viper.BindPFlags(cmd.Flags()); err != nil {
 			panic(err)
@@ -74,11 +79,19 @@ var generateCmd = &cobra.Command{
 			if err != nil {
 				log.Ctx(innerCtx).Fatal().Err(err).Msg("failed to create output directory")
 			}
+			chown_util.TryRectifyRootFiles(innerCtx, []string{maker.OutputDir})
 
-			err = maker.Make(innerCtx, files)
+			err = maker.Make(innerCtx, files, false)
 			if err != nil {
 				log.Ctx(innerCtx).Fatal().Err(err).Msg("generation failed")
 			}
+
+			allPaths := make([]string, 0)
+			filepath.WalkDir(maker.OutputDir, func(path string, d fs.DirEntry, err error) error {
+				allPaths = append(allPaths, path)
+				return nil
+			})
+			chown_util.TryRectifyRootFiles(innerCtx, allPaths)
 		}
 	},
 }
@@ -160,6 +173,7 @@ func makeMaker(dir string) *core.Maker {
 		OutputDir: dir,
 		Parsers: []core.Parser{
 			hcl_parser.HclParser{},
+			json_parser.JsonParser{},
 		},
 		PreTransformers: []core.Transformer{
 			simplifier_transform.SimplifierTransformer{},
@@ -170,16 +184,20 @@ func makeMaker(dir string) *core.Maker {
 			jsonnet_templater.JsonnetTemplater{},
 		},
 		Transformers: []core.Transformer{
-			//the simplifier being first is very important, it simplify syntax that is equivalent
+			//the simplifier being first is very important, it simplifies syntax that is equivalent
 			//to make it a lot easier for the transformers to work with
 			simplifier_transform.SimplifierTransformer{},
 			traversal_manipulator.TraversalManipulator{},
+			aws_session_provider.AwsSessionProviderTransformer{},
+			buildkit_runner.BuildkitRunner{},
 		},
 		Formatters: []core.Formatter{
 			terraform_fmt.TerraformFormatter{},
 			zipper_fmt.ZipperFormatter{},
 			raw_file.RawFileFormatter{},
-			s3_bucket_creator.S3BucketCreator{},
+		},
+		Appliers: []core.Applier{
+			buildkit_runner.BuildkitRunner{},
 		},
 	}
 }

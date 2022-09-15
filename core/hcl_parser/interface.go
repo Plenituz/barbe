@@ -1,8 +1,8 @@
 package hcl_parser
 
 import (
-	"context"
 	"barbe/core"
+	"context"
 	"strings"
 )
 
@@ -13,7 +13,8 @@ func (h HclParser) Name() string {
 }
 
 func (h HclParser) CanParse(ctx context.Context, fileDesc core.FileDescription) (bool, error) {
-	return strings.HasSuffix(strings.ToLower(fileDesc.Name), ".hcl"), nil
+	l := strings.ToLower(fileDesc.Name)
+	return strings.HasSuffix(l, ".hcl") || strings.HasSuffix(l, ".tf"), nil
 }
 
 func (h HclParser) Parse(ctx context.Context, fileDesc core.FileDescription, container *core.ConfigContainer) error {

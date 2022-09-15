@@ -1,11 +1,12 @@
 package raw_file
 
 import (
+	"barbe/core"
+	"barbe/core/chown_util"
 	"context"
 	"github.com/pkg/errors"
 	"os"
 	"path"
-	"barbe/core"
 )
 
 type RawFileFormatter struct{}
@@ -69,5 +70,9 @@ func applyRawFile(ctx context.Context, databag *core.DataBag) error {
 	if err != nil {
 		return errors.Wrap(err, "error writing file at '"+outputPath+"'")
 	}
+	chown_util.TryRectifyRootFiles(ctx, []string{
+		path.Dir(outputPath),
+		outputPath,
+	})
 	return nil
 }

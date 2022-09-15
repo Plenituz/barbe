@@ -1,11 +1,11 @@
 package traversal_manipulator
 
 import (
+	"barbe/core"
 	"context"
 	"fmt"
 	"github.com/pkg/errors"
 	"reflect"
-	"barbe/core"
 	"strings"
 )
 
@@ -49,7 +49,7 @@ func transformTraversals(ctx context.Context, data *core.ConfigContainer) error 
 }
 
 func transformerLoop(ctx context.Context, databag *core.DataBag, transformMap map[string]string) error {
-	for {
+	for i := 0; i < 100; i++ {
 		count := 0
 		transformed, err := visitTransformers(ctx, core.TokenPtr(databag.Value), transformMap, func() {
 			count++

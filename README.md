@@ -36,7 +36,7 @@ These definitions are written into templates that generate all the files needed 
   <img src="./readme_img_1.png" width="400" />
 </p>
 
-This creates a lot of attracting advantages:
+This approach has lot of advantages:
 - Drastically reduce boilerplate of any toolchain
 - Use a toolchain's best practices by default, forever
 - Reduce cost of changing tooling and cloud platforms
@@ -58,7 +58,7 @@ each one can manipulate and create more syntax tokens, Barbe then formats the re
 You specify the templates you want using a simple URL, kind of like a `FROM` statement in a Dockerfile.
 This allows your configuration file to stay simple, but still harness a world a complexity that the template makers prepared for you.
 
-Templates can also manipulate the syntax tokens it receives using dark magic, a simple reference like `cloudformation.MyBucket.Id` in your Terraform file could be turned
+Templates can also manipulate the syntax tokens it receives using dark magic, a simple reference like `cloudformation("my-stack").output.MyBucketName` in your Terraform file can be turned
 into a concrete value gotten from your Cloudformation stack, without you lifting a finger.
 
 #### An imaginary example project

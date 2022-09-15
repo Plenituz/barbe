@@ -21,8 +21,6 @@ func New() zerolog.Logger {
 
 	if !jsonLogs() {
 		logger = logger.Output(&PlainOutput{Out: colorable.NewColorableStderr()})
-	} else {
-		logger = logger.With().Timestamp().Caller().Logger()
 	}
 
 	level := viper.GetString("log-level")

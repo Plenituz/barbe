@@ -2,6 +2,8 @@ package zipper_fmt
 
 import (
 	"archive/zip"
+	"barbe/core/chown_util"
+	"barbe/core/zipper_fmt/wildcard"
 	"context"
 	"fmt"
 	"github.com/pkg/errors"
@@ -11,7 +13,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"barbe/core/zipper_fmt/wildcard"
 	"sort"
 	"strings"
 )
@@ -119,6 +120,11 @@ func doTheZip(ctx context.Context, outputPath string, baseDir string, includePat
 			return errors.Wrap(err, "failed to add file '"+file+"' to zip")
 		}
 	}
+
+	chown_util.TryRectifyRootFiles(ctx, []string{
+		filepath.Dir(outputPath),
+		outputPath,
+	})
 
 	return nil
 }

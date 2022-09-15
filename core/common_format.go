@@ -16,6 +16,7 @@ type Maker struct {
 	Templaters      []TemplateEngine
 	Transformers    []Transformer
 	Formatters      []Formatter
+	Appliers        []Applier
 }
 
 type Executable struct {
@@ -51,6 +52,24 @@ const (
 	TokenTypeSplat             SyntaxTokenType = "splat"
 	TokenTypeAnonymous         SyntaxTokenType = "anon"
 )
+
+var TokenTypes = map[SyntaxTokenType]struct{}{
+	TokenTypeLiteralValue:      {},
+	TokenTypeScopeTraversal:    {},
+	TokenTypeFunctionCall:      {},
+	TokenTypeTemplate:          {},
+	TokenTypeObjectConst:       {},
+	TokenTypeArrayConst:        {},
+	TokenTypeIndexAccess:       {},
+	TokenTypeFor:               {},
+	TokenTypeRelativeTraversal: {},
+	TokenTypeConditional:       {},
+	TokenTypeBinaryOp:          {},
+	TokenTypeUnaryOp:           {},
+	TokenTypeParens:            {},
+	TokenTypeSplat:             {},
+	TokenTypeAnonymous:         {},
+}
 
 type TraverseType = string
 
@@ -296,7 +315,12 @@ type Formatter interface {
 	Format(ctx context.Context, container *ConfigContainer) error
 }
 
-func (maker *Maker) Make(ctx context.Context, inputFiles []FileDescription) error {
+type Applier interface {
+	Name() string
+	Apply(ctx context.Context, container *ConfigContainer) error
+}
+
+func (maker *Maker) Make(ctx context.Context, inputFiles []FileDescription, apply bool) error {
 	container := &ConfigContainer{
 		DataBags: map[string]map[string]DataBagGroup{},
 	}
@@ -344,10 +368,20 @@ func (maker *Maker) Make(ctx context.Context, inputFiles []FileDescription) erro
 	}
 
 	for _, formatter := range maker.Formatters {
-		log.Ctx(ctx).Debug().Msgf("applying formatter %s", formatter.Name())
+		log.Ctx(ctx).Debug().Msgf("formatting %s", formatter.Name())
 		err := formatter.Format(ctx, container)
 		if err != nil {
 			return err
+		}
+	}
+
+	if apply {
+		for _, applier := range maker.Appliers {
+			log.Ctx(ctx).Debug().Msgf("applying %s", applier.Name())
+			err := applier.Apply(ctx, container)
+			if err != nil {
+				return err
+			}
 		}
 	}
 	return nil
