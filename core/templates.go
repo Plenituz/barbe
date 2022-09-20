@@ -202,7 +202,7 @@ func selectVersion(ctx context.Context, versionConstraint version.Constraints, m
 		}
 		definedVersions = append(definedVersions, v)
 	}
-	sort.Sort(version.Collection(definedVersions))
+	sort.Sort(sort.Reverse(version.Collection(definedVersions)))
 
 	for _, v := range definedVersions {
 		if versionConstraint.Check(v) {
