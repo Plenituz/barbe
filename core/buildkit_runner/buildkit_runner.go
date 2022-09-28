@@ -4,6 +4,7 @@ import (
 	"barbe/core"
 	"barbe/core/buildkit_runner/buildkit_status"
 	"barbe/core/buildkit_runner/buildkitd"
+	"barbe/core/buildkit_runner/socketprovider"
 	"barbe/core/chown_util"
 	"bufio"
 	"context"
@@ -13,6 +14,7 @@ import (
 	"github.com/moby/buildkit/client/llb"
 	"github.com/moby/buildkit/frontend/dockerfile/dockerfile2llb"
 	bkgw "github.com/moby/buildkit/frontend/gateway/client"
+	"github.com/moby/buildkit/session"
 	"github.com/moby/buildkit/util/buildinfo/types"
 	specs "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
@@ -40,9 +42,6 @@ func (t BuildkitRunner) Apply(ctx context.Context, data *core.ConfigContainer) e
 }
 
 func run(ctx context.Context, data *core.ConfigContainer, databagType string) error {
-	//TODO may want to not group the states together so we can:
-	//- handle error of each commands easier
-	//- allow execution of commands that dont output files
 	executables := make([]runnerExecutable, 0)
 	for resourceType, m := range data.DataBags {
 		if resourceType != databagType {
@@ -372,6 +371,9 @@ func executeRunner(ctx context.Context, executable runnerExecutable, container *
 	opts := bk.SolveOpt{
 		LocalDirs: map[string]string{
 			"src": ".",
+		},
+		Session: []session.Attachable{
+			socketprovider.NewDockerSocketProvider(),
 		},
 	}
 
