@@ -6,6 +6,7 @@ import (
 	"barbe/core/aws_session_provider"
 	"barbe/core/buildkit_runner"
 	"barbe/core/chown_util"
+	"barbe/core/gcp_token_provider"
 	"barbe/core/hcl_parser"
 	"barbe/core/json_parser"
 	"barbe/core/jsonnet_templater"
@@ -189,6 +190,7 @@ func makeMaker(dir string) *core.Maker {
 			simplifier_transform.SimplifierTransformer{},
 			traversal_manipulator.TraversalManipulator{},
 			aws_session_provider.AwsSessionProviderTransformer{},
+			gcp_token_provider.GcpTokenProviderTransformer{},
 			buildkit_runner.BuildkitRunner{},
 		},
 		Formatters: []core.Formatter{
