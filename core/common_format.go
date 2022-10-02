@@ -320,21 +320,21 @@ type Applier interface {
 	Apply(ctx context.Context, container *ConfigContainer) error
 }
 
-func (maker *Maker) Make(ctx context.Context, inputFiles []FileDescription, apply bool) error {
+func (maker *Maker) Make(ctx context.Context, inputFiles []FileDescription, apply bool) (*ConfigContainer, error) {
 	container := &ConfigContainer{
 		DataBags: map[string]map[string]DataBagGroup{},
 	}
 
 	err := maker.ParseFiles(ctx, inputFiles, container)
 	if err != nil {
-		return errors.Wrap(err, "error parsing input files")
+		return container, errors.Wrap(err, "error parsing input files")
 	}
 
 	t := time.Now()
 	executable, err := GetTemplates(ctx, container)
 	log.Ctx(ctx).Debug().Msgf("getting templates took: %s", time.Since(t))
 	if err != nil {
-		return errors.Wrap(err, "error getting templates")
+		return container, errors.Wrap(err, "error getting templates")
 	}
 
 	if len(executable.Message) != 0 {
@@ -343,11 +343,11 @@ func (maker *Maker) Make(ctx context.Context, inputFiles []FileDescription, appl
 
 	err = maker.ParseFiles(ctx, executable.Files, container)
 	if err != nil {
-		return errors.Wrap(err, "error parsing files from manifest")
+		return container, errors.Wrap(err, "error parsing files from manifest")
 	}
 	err = maker.PreTransform(ctx, container)
 	if err != nil {
-		return err
+		return container, err
 	}
 
 	for i, step := range executable.Steps {
@@ -358,12 +358,12 @@ func (maker *Maker) Make(ctx context.Context, inputFiles []FileDescription, appl
 			err = engine.Apply(ctx, container, step.Templates)
 			log.Ctx(ctx).Debug().Msgf("template engine '%s' took: %v", engine.Name(), time.Since(t))
 			if err != nil {
-				return errors.Wrap(err, "from template engine '"+engine.Name()+"'")
+				return container, errors.Wrap(err, "from template engine '"+engine.Name()+"'")
 			}
 		}
 		err = maker.Transform(ctx, container)
 		if err != nil {
-			return err
+			return container, err
 		}
 	}
 
@@ -371,7 +371,7 @@ func (maker *Maker) Make(ctx context.Context, inputFiles []FileDescription, appl
 		log.Ctx(ctx).Debug().Msgf("formatting %s", formatter.Name())
 		err := formatter.Format(ctx, container)
 		if err != nil {
-			return err
+			return container, err
 		}
 	}
 
@@ -380,11 +380,11 @@ func (maker *Maker) Make(ctx context.Context, inputFiles []FileDescription, appl
 			log.Ctx(ctx).Debug().Msgf("applying %s", applier.Name())
 			err := applier.Apply(ctx, container)
 			if err != nil {
-				return err
+				return container, err
 			}
 		}
 	}
-	return nil
+	return container, nil
 }
 
 func (maker *Maker) ParseFiles(ctx context.Context, files []FileDescription, container *ConfigContainer) error {

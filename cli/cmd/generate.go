@@ -16,6 +16,7 @@ import (
 	"barbe/core/traversal_manipulator"
 	"barbe/core/zipper_fmt"
 	"context"
+	"encoding/json"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -82,9 +83,23 @@ var generateCmd = &cobra.Command{
 			}
 			chown_util.TryRectifyRootFiles(innerCtx, []string{maker.OutputDir})
 
-			err = maker.Make(innerCtx, files, false)
+			container, err := maker.Make(innerCtx, files, false)
 			if err != nil {
 				log.Ctx(innerCtx).Fatal().Err(err).Msg("generation failed")
+			}
+
+			if viper.GetBool("debug-bags") {
+				b, err := json.MarshalIndent(container, "", "  ")
+				if err != nil {
+					log.Ctx(innerCtx).Error().Err(err).Msg("failed to marshal container (--debug-bags)")
+				} else {
+					outputFile := path.Join(maker.OutputDir, "debug-bags.json")
+					err = os.WriteFile(outputFile, b, 0644)
+					if err != nil {
+						log.Ctx(innerCtx).Error().Err(err).Msg("failed to write debug-bags.json")
+					}
+					log.Ctx(innerCtx).Info().Msg("wrote databags at '" + outputFile + "'")
+				}
 			}
 
 			allPaths := make([]string, 0)

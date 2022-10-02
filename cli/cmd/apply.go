@@ -71,7 +71,7 @@ var applyCmd = &cobra.Command{
 			}
 			chown_util.TryRectifyRootFiles(innerCtx, []string{maker.OutputDir})
 
-			err = maker.Make(innerCtx, files, true)
+			_, err = maker.Make(innerCtx, files, true)
 			if err != nil {
 				log.Ctx(innerCtx).Fatal().Err(err).Msg("generation failed")
 			}

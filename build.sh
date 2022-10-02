@@ -6,7 +6,7 @@
 # Determine the arch/os combos we're building for
 XC_ARCH=${XC_ARCH:-"386 amd64 arm"}
 XC_OS=${XC_OS:-linux darwin windows freebsd}
-XC_EXCLUDE_OSARCH=""# !darwin/arm !darwin/386
+XC_EXCLUDE_OSARCH=""
 
 # Delete the old dir
 echo "==> Removing old directory..."
