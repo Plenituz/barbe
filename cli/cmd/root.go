@@ -1,7 +1,9 @@
 package cmd
 
 import (
+	"barbe/analytics"
 	"barbe/cli/logger"
+	"context"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"strings"
@@ -33,9 +35,12 @@ func init() {
 	viper.SetEnvPrefix("barbe")
 	viper.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
 	viper.AutomaticEnv()
+
+	analytics.StartConsumer(context.Background())
 }
 
 func Execute() {
+	defer analytics.Flush()
 	lg := logger.New()
 	if err := rootCmd.Execute(); err != nil {
 		lg.Fatal().Err(err).Msg("failed to execute command")

@@ -1,18 +1,14 @@
 package cmd
 
 import (
+	"barbe/analytics"
+	"barbe/cli/cmd/cliutils"
 	"barbe/cli/logger"
 	"barbe/core"
-	"barbe/core/chown_util"
 	"context"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"io/fs"
-	"os"
-	"path"
-	"path/filepath"
-	"strings"
 )
 
 var applyCmd = &cobra.Command{
@@ -33,55 +29,45 @@ var applyCmd = &cobra.Command{
 		}
 		log.Ctx(ctx).Debug().Msgf("running with args: %v", args)
 
-		allFiles := make([]core.FileDescription, 0)
-		for _, arg := range args {
-			matches, err := glob(arg)
-			if err != nil {
-				log.Ctx(ctx).Fatal().Err(err).Msg("glob matching failed")
-			}
-			for _, match := range matches {
-				fileContent, err := os.ReadFile(match)
-				if err != nil {
-					log.Ctx(ctx).Error().Err(err).Msg("reading file failed")
-					continue
-				}
-				allFiles = append(allFiles, core.FileDescription{
-					Name:    match,
-					Content: fileContent,
-				})
-			}
+		allFiles, err := cliutils.ReadAllFilesMatching(ctx, args)
+		if err != nil {
+			lg.Fatal().Err(err).Msg("failed to read files")
 		}
 
-		grouped := groupFilesByDirectory(dedup(allFiles))
-		for dir, files := range grouped {
-			log.Ctx(ctx).Debug().Msg("executing maker for directory: '" + dir + "'")
+		fileNames := make([]string, 0, len(allFiles))
+		for _, file := range allFiles {
+			fileNames = append(fileNames, file.Name)
+		}
+		analytics.QueueEvent(ctx, analytics.AnalyticsEvent{
+			EventType: "ExecutionStart",
+			EventProperties: map[string]interface{}{
+				"Files":     fileNames,
+				"FileCount": len(allFiles),
+				"Command":   "apply",
+			},
+		})
 
-			fileNames := make([]string, 0, len(files))
-			for _, file := range files {
-				fileNames = append(fileNames, file.Name)
-			}
-			log.Ctx(ctx).Debug().Msg("with files: [" + strings.Join(fileNames, ", ") + "]")
-
-			maker := makeMaker(path.Join(viper.GetString("output"), dir))
-			innerCtx := context.WithValue(ctx, "maker", maker)
-
-			err := os.MkdirAll(maker.OutputDir, 0755)
+		err = cliutils.IterateDirectories(ctx, allFiles, func(files []core.FileDescription, ctx context.Context, maker *core.Maker) error {
+			_, err = maker.Make(ctx, files, true)
 			if err != nil {
-				log.Ctx(innerCtx).Fatal().Err(err).Msg("failed to create output directory")
+				log.Ctx(ctx).Fatal().Err(err).Msg("generation failed")
 			}
-			chown_util.TryRectifyRootFiles(innerCtx, []string{maker.OutputDir})
-
-			_, err = maker.Make(innerCtx, files, true)
-			if err != nil {
-				log.Ctx(innerCtx).Fatal().Err(err).Msg("generation failed")
-			}
-
-			allPaths := make([]string, 0)
-			filepath.WalkDir(maker.OutputDir, func(path string, d fs.DirEntry, err error) error {
-				allPaths = append(allPaths, path)
-				return nil
+			return nil
+		})
+		if err != nil {
+			analytics.QueueEvent(ctx, analytics.AnalyticsEvent{
+				EventType: "ExecutionEnd",
+				EventProperties: map[string]interface{}{
+					"Error": err.Error(),
+				},
 			})
-			chown_util.TryRectifyRootFiles(innerCtx, allPaths)
+			lg.Fatal().Err(err).Msg("")
 		}
+		analytics.QueueEvent(ctx, analytics.AnalyticsEvent{
+			EventType: "ExecutionEnd",
+			EventProperties: map[string]interface{}{
+				"Success": true,
+			},
+		})
 	},
 }

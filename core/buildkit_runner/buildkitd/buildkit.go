@@ -65,7 +65,7 @@ func Start(ctx context.Context) (string, error) {
 func checkBuildkit(ctx context.Context) error {
 	lg := log.Ctx(ctx)
 
-	// acquire a file-based lock to ensure parallel dagger clients
+	// acquire a file-based lock to ensure parallel clients
 	// don't interfere with checking+creating the buildkitd container
 	lockFilePath, err := homedir.Expand(buildkitdLockPath)
 	if err != nil {
@@ -238,7 +238,7 @@ func installBuildkit(ctx context.Context) error {
 	output, err = cmd.CombinedOutput()
 	if err != nil {
 		// If the daemon failed to start because it's already running,
-		// chances are another dagger instance started it. We can just ignore
+		// chances are another instance started it. We can just ignore
 		// the error.
 		if !strings.Contains(string(output), "Error response from daemon: Conflict.") {
 			log.
