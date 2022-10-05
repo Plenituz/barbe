@@ -6,6 +6,7 @@ import (
 	"barbe/core/buildkit_runner/buildkitd"
 	"barbe/core/buildkit_runner/socketprovider"
 	"barbe/core/chown_util"
+	"barbe/core/state_display"
 	"bufio"
 	"context"
 	"fmt"
@@ -67,6 +68,7 @@ func run(ctx context.Context, data *core.ConfigContainer, databagType string) er
 				if err != nil {
 					return errors.Wrap(err, "error building llb definition")
 				}
+				executable.Name = databag.Name
 				executables = append(executables, executable)
 
 				err = data.Insert(core.DataBag{
@@ -126,6 +128,8 @@ type runnerConfig struct {
 }
 
 type runnerExecutable struct {
+	//Name is just for display
+	Name                string
 	Message             string
 	RequireConfirmation bool
 	llbDefinition       llb.State
@@ -365,6 +369,7 @@ func buildLlbDefinition(ctx context.Context, runnerConfig runnerConfig) (runnerE
 }
 
 func executeRunner(ctx context.Context, executable runnerExecutable, container *core.ConfigContainer) error {
+	state_display.AddLogLine(state_display.FindActiveMajorStepWithMinorStepNamed("buildkit_runner"), "buildkit_runner", executable.Name)
 	maker := ctx.Value("maker").(*core.Maker)
 	outputDir := maker.OutputDir
 

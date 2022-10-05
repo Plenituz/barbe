@@ -1,8 +1,6 @@
 package main
 
-import (
-	"barbe/cli/cmd"
-)
+import "barbe/cli/cmd"
 
 func main() {
 	cmd.Execute()

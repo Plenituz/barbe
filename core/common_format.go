@@ -1,7 +1,9 @@
 package core
 
 import (
+	"barbe/core/state_display"
 	"context"
+	"fmt"
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog/log"
 	"reflect"
@@ -331,7 +333,9 @@ func (maker *Maker) Make(ctx context.Context, inputFiles []FileDescription, appl
 	}
 
 	t := time.Now()
+	state_display.StartMajorStep("Fetch templates")
 	executable, err := GetTemplates(ctx, container)
+	state_display.EndMajorStep("Fetch templates")
 	log.Ctx(ctx).Debug().Msgf("getting templates took: %s", time.Since(t))
 	if err != nil {
 		return container, errors.Wrap(err, "error getting templates")
@@ -345,28 +349,42 @@ func (maker *Maker) Make(ctx context.Context, inputFiles []FileDescription, appl
 	if err != nil {
 		return container, errors.Wrap(err, "error parsing files from manifest")
 	}
+
+	state_display.StartMajorStep("Pre-transform")
 	err = maker.PreTransform(ctx, container)
 	if err != nil {
 		return container, err
 	}
+	state_display.EndMajorStep("Pre-transform")
 
 	for i, step := range executable.Steps {
+
+		stepName := fmt.Sprintf("Step %d", i+1)
+		state_display.StartMajorStep(stepName)
 		log.Ctx(ctx).Debug().Msgf("executing step %d", i)
+
 		for _, engine := range maker.Templaters {
+			state_display.StartMinorStep(stepName, engine.Name())
 			log.Ctx(ctx).Debug().Msg("applying template engine: " + engine.Name())
 			t := time.Now()
+			
 			err = engine.Apply(ctx, container, step.Templates)
+
+			state_display.EndMinorStep(stepName, engine.Name())
 			log.Ctx(ctx).Debug().Msgf("template engine '%s' took: %v", engine.Name(), time.Since(t))
+
 			if err != nil {
 				return container, errors.Wrap(err, "from template engine '"+engine.Name()+"'")
 			}
 		}
-		err = maker.Transform(ctx, container)
+		err = maker.Transform(ctx, container, stepName)
 		if err != nil {
 			return container, err
 		}
+		state_display.EndMajorStep(stepName)
 	}
 
+	state_display.StartMajorStep("Formatters")
 	for _, formatter := range maker.Formatters {
 		log.Ctx(ctx).Debug().Msgf("formatting %s", formatter.Name())
 		err := formatter.Format(ctx, container)
@@ -374,15 +392,20 @@ func (maker *Maker) Make(ctx context.Context, inputFiles []FileDescription, appl
 			return container, err
 		}
 	}
+	state_display.EndMajorStep("Formatters")
 
 	if apply {
+		state_display.StartMajorStep("Appliers")
 		for _, applier := range maker.Appliers {
+			state_display.StartMinorStep("Appliers", applier.Name())
 			log.Ctx(ctx).Debug().Msgf("applying %s", applier.Name())
 			err := applier.Apply(ctx, container)
+			state_display.EndMinorStep("Appliers", applier.Name())
 			if err != nil {
 				return container, err
 			}
 		}
+		state_display.EndMajorStep("Appliers")
 	}
 	return container, nil
 }
@@ -420,11 +443,13 @@ func (maker *Maker) PreTransform(ctx context.Context, container *ConfigContainer
 	return nil
 }
 
-func (maker *Maker) Transform(ctx context.Context, container *ConfigContainer) error {
+func (maker *Maker) Transform(ctx context.Context, container *ConfigContainer, displayName string) error {
 	for _, transformer := range maker.Transformers {
+		state_display.StartMinorStep(displayName, transformer.Name())
 		log.Ctx(ctx).Debug().Msgf("applying transformer '%s'", transformer.Name())
 		t := time.Now()
 		err := transformer.Transform(ctx, container)
+		state_display.EndMinorStep(displayName, transformer.Name())
 		log.Ctx(ctx).Debug().Msgf("transformer '%s' took: %s", transformer.Name(), time.Since(t))
 		if err != nil {
 			return err

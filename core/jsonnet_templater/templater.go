@@ -2,12 +2,14 @@ package jsonnet_templater
 
 import (
 	"barbe/core"
+	"bufio"
 	"context"
 	"encoding/json"
 	"github.com/google/go-jsonnet"
 	"github.com/google/go-jsonnet/ast"
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog/log"
+	"io"
 	"os"
 	"path"
 	"regexp"
@@ -72,6 +74,15 @@ func applyTemplate(ctx context.Context, container *core.ConfigContainer, templat
 			return result, nil
 		},
 	})
+
+	traceReader, traceWriter := io.Pipe()
+	go func() {
+		scanner := bufio.NewScanner(traceReader)
+		for scanner.Scan() {
+			log.Ctx(ctx).Debug().Msg(scanner.Text())
+		}
+	}()
+	vm.SetTraceOut(traceWriter)
 
 	results := make([]string, 0)
 	for _, templateFile := range templates {

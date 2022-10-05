@@ -13,22 +13,27 @@ import (
 )
 
 func New() zerolog.Logger {
-	logger := zerolog.
-		New(os.Stderr).
-		With().
-		Timestamp().
-		Logger()
-
-	if !jsonLogs() {
-		logger = logger.Output(&PlainOutput{Out: colorable.NewColorableStderr()})
-	}
-
 	level := viper.GetString("log-level")
 	lvl, err := zerolog.ParseLevel(level)
 	if err != nil {
 		panic(err)
 	}
-	return logger.Level(lvl)
+	logger := zerolog.
+		New(os.Stderr).
+		With().
+		Timestamp().
+		Logger().
+		Level(lvl)
+
+	if !jsonLogs() {
+		if viper.GetString("log-format") == "plain" {
+			logger = logger.Output(&PlainOutput{Out: colorable.NewColorableStderr()})
+		} else {
+			logger = logger.Output(NewFancyOutput())
+			StartFancyDisplay(logger)
+		}
+	}
+	return logger
 }
 
 func jsonLogs() bool {
