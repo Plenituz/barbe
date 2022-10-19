@@ -52,6 +52,19 @@ func GetMetaBool(token SyntaxToken, key string) bool {
 	return false
 }
 
+func GetMeta[T any](token SyntaxToken, key string) T {
+	var noop T
+	if token.Meta == nil {
+		return noop
+	}
+	if maybe, ok := token.Meta[key]; ok {
+		if definitely, ok := maybe.(T); ok {
+			return definitely
+		}
+	}
+	return noop
+}
+
 func GetObjectKeyValues(key string, pairs []ObjectConstItem) []SyntaxToken {
 	return GetObjectKeysValues(map[string]struct{}{key: {}}, pairs)
 }

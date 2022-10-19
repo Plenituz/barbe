@@ -9,10 +9,12 @@ import (
 	"github.com/hashicorp/go-version"
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog/log"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"os"
 	"path"
+	"regexp"
 	"runtime"
 	"sort"
 	"strings"
@@ -37,7 +39,8 @@ type ManifestVersion struct {
 	InheritFrom []ParentManifestLink `json:"inheritFrom"`
 	Message     *string              `json:"message"`
 	Files       []string             `json:"files"`
-	Steps       []ManifestStep       `json:"steps"`
+	Transform   []ManifestStep       `json:"transform"`
+	Apply       []ManifestStep       `json:"apply"`
 }
 type ManifestStep struct {
 	Templates []string `json:"templates"`
@@ -66,7 +69,10 @@ func prepareTemplates(ctx context.Context, container *ConfigContainer) (Executab
 	executable := Executable{
 		Message: []string{},
 		Files:   []FileDescription{},
-		Steps: []ExecutableStep{
+		TransformSteps: []ExecutableStep{
+			{Templates: []FileDescription{}},
+		},
+		ApplySteps: []ExecutableStep{
 			{Templates: []FileDescription{}},
 		},
 	}
@@ -86,7 +92,7 @@ func prepareTemplates(ctx context.Context, container *ConfigContainer) (Executab
 			return Executable{}, errors.Wrap(err, "error fetching template")
 		}
 
-		executable.Steps[0].Templates = append(executable.Steps[0].Templates, FileDescription{
+		executable.TransformSteps[0].Templates = append(executable.TransformSteps[0].Templates, FileDescription{
 			Name:    path.Base(template),
 			Content: templateContent,
 		})
@@ -163,16 +169,31 @@ func applyManifestToExecutable(ctx context.Context, executable *Executable, mani
 			Content: fileContent,
 		})
 	}
-	for stepIndex, step := range manifestVersion.Steps {
-		if stepIndex >= len(executable.Steps) {
-			executable.Steps = append(executable.Steps, ExecutableStep{})
+	for stepIndex, step := range manifestVersion.Transform {
+		if stepIndex >= len(executable.TransformSteps) {
+			executable.TransformSteps = append(executable.TransformSteps, ExecutableStep{})
 		}
 		for _, template := range step.Templates {
 			templateContent, err := fetchFile(template)
 			if err != nil {
 				return errors.Wrap(err, "error fetching template '"+template+"'")
 			}
-			executable.Steps[stepIndex].Templates = append(executable.Steps[stepIndex].Templates, FileDescription{
+			executable.TransformSteps[stepIndex].Templates = append(executable.TransformSteps[stepIndex].Templates, FileDescription{
+				Name:    path.Base(template),
+				Content: templateContent,
+			})
+		}
+	}
+	for stepIndex, step := range manifestVersion.Apply {
+		if stepIndex >= len(executable.ApplySteps) {
+			executable.ApplySteps = append(executable.ApplySteps, ExecutableStep{})
+		}
+		for _, template := range step.Templates {
+			templateContent, err := fetchFile(template)
+			if err != nil {
+				return errors.Wrap(err, "error fetching template '"+template+"'")
+			}
+			executable.ApplySteps[stepIndex].Templates = append(executable.ApplySteps[stepIndex].Templates, FileDescription{
 				Name:    path.Base(template),
 				Content: templateContent,
 			})
@@ -218,7 +239,7 @@ func fetchManifestUrl(manifestUrl string) (Manifest, error) {
 		return Manifest{}, errors.Wrap(err, "error fetching manifest")
 	}
 	var manifest Manifest
-	err = json.NewDecoder(bytes.NewReader(manifestBody)).Decode(&manifest)
+	err = json.NewDecoder(removeCommentJson(bytes.NewReader(manifestBody))).Decode(&manifest)
 	if err != nil {
 		return Manifest{}, errors.Wrap(err, "error json decoding manifest body at '"+manifestUrl+"'")
 	}
@@ -229,6 +250,19 @@ func fetchManifestUrl(manifestUrl string) (Manifest, error) {
 		}
 	}
 	return manifest, nil
+}
+
+func removeCommentJson(reader io.Reader) (newReader io.Reader) {
+	bs, err := ioutil.ReadAll(reader)
+	if err != nil {
+		panic(err)
+	}
+	s := string(bs)
+	re1 := regexp.MustCompile(`(?im)^\s+\/\/.*$`)
+	s = re1.ReplaceAllString(s, "")
+	re2 := regexp.MustCompile(`(?im)\/\/[^"\[\]]+$`)
+	s = re2.ReplaceAllString(s, "")
+	return strings.NewReader(s)
 }
 
 func fetchFile(fileUrl string) ([]byte, error) {

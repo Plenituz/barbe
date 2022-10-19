@@ -35,11 +35,11 @@ func (t BuildkitRunner) Name() string {
 }
 
 func (t BuildkitRunner) Transform(ctx context.Context, data *core.ConfigContainer) error {
-	return run(ctx, data, "buildkit_run_in_container_transform")
+	return run(ctx, data, "buildkit_run_in_container")
 }
 
 func (t BuildkitRunner) Apply(ctx context.Context, data *core.ConfigContainer) error {
-	return run(ctx, data, "buildkit_run_in_container_apply")
+	return run(ctx, data, "buildkit_run_in_container")
 }
 
 func run(ctx context.Context, data *core.ConfigContainer, databagType string) error {

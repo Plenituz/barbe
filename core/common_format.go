@@ -22,9 +22,10 @@ type Maker struct {
 }
 
 type Executable struct {
-	Message []string
-	Files   []FileDescription
-	Steps   []ExecutableStep
+	Message        []string
+	Files          []FileDescription
+	TransformSteps []ExecutableStep
+	ApplySteps     []ExecutableStep
 }
 type ExecutableStep struct {
 	Templates []FileDescription
@@ -357,8 +358,7 @@ func (maker *Maker) Make(ctx context.Context, inputFiles []FileDescription, appl
 	}
 	state_display.EndMajorStep("Pre-transform")
 
-	for i, step := range executable.Steps {
-
+	for i, step := range executable.TransformSteps {
 		stepName := fmt.Sprintf("Step %d", i+1)
 		state_display.StartMajorStep(stepName)
 		log.Ctx(ctx).Debug().Msgf("executing step %d", i)
@@ -367,7 +367,7 @@ func (maker *Maker) Make(ctx context.Context, inputFiles []FileDescription, appl
 			state_display.StartMinorStep(stepName, engine.Name())
 			log.Ctx(ctx).Debug().Msg("applying template engine: " + engine.Name())
 			t := time.Now()
-			
+
 			err = engine.Apply(ctx, container, step.Templates)
 
 			state_display.EndMinorStep(stepName, engine.Name())
@@ -396,15 +396,32 @@ func (maker *Maker) Make(ctx context.Context, inputFiles []FileDescription, appl
 
 	if apply {
 		state_display.StartMajorStep("Appliers")
-		for _, applier := range maker.Appliers {
-			state_display.StartMinorStep("Appliers", applier.Name())
-			log.Ctx(ctx).Debug().Msgf("applying %s", applier.Name())
-			err := applier.Apply(ctx, container)
-			state_display.EndMinorStep("Appliers", applier.Name())
+		for i, step := range executable.ApplySteps {
+			stepName := fmt.Sprintf("Step %d", i+1)
+			state_display.StartMajorStep(stepName)
+			log.Ctx(ctx).Debug().Msgf("executing step %d", i)
+
+			for _, engine := range maker.Templaters {
+				state_display.StartMinorStep(stepName, engine.Name())
+				log.Ctx(ctx).Debug().Msg("applying template engine: " + engine.Name())
+				t := time.Now()
+
+				err = engine.Apply(ctx, container, step.Templates)
+
+				state_display.EndMinorStep(stepName, engine.Name())
+				log.Ctx(ctx).Debug().Msgf("template engine '%s' took: %v", engine.Name(), time.Since(t))
+
+				if err != nil {
+					return container, errors.Wrap(err, "from template engine '"+engine.Name()+"'")
+				}
+			}
+			err = maker.Apply(ctx, container, stepName)
 			if err != nil {
 				return container, err
 			}
+			state_display.EndMajorStep(stepName)
 		}
+
 		state_display.EndMajorStep("Appliers")
 	}
 	return container, nil
@@ -451,6 +468,19 @@ func (maker *Maker) Transform(ctx context.Context, container *ConfigContainer, d
 		err := transformer.Transform(ctx, container)
 		state_display.EndMinorStep(displayName, transformer.Name())
 		log.Ctx(ctx).Debug().Msgf("transformer '%s' took: %s", transformer.Name(), time.Since(t))
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (maker *Maker) Apply(ctx context.Context, container *ConfigContainer, displayName string) error {
+	for _, applier := range maker.Appliers {
+		state_display.StartMinorStep(displayName, applier.Name())
+		log.Ctx(ctx).Debug().Msgf("applying %s", applier.Name())
+		err := applier.Apply(ctx, container)
+		state_display.EndMinorStep(displayName, applier.Name())
 		if err != nil {
 			return err
 		}

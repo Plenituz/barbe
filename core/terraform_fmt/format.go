@@ -4,12 +4,16 @@ import (
 	"barbe/core"
 	"barbe/core/chown_util"
 	"context"
-	"errors"
 	"github.com/hashicorp/hcl/v2/hclwrite"
+	"github.com/pkg/errors"
 	"github.com/rs/zerolog/log"
 	"os"
 	"path"
 	"strings"
+)
+
+const (
+	TerraformSubdirMetaKey = "sub_dir"
 )
 
 type TerraformFormatter struct{}
@@ -19,17 +23,51 @@ func (t TerraformFormatter) Name() string {
 }
 
 func (t TerraformFormatter) Format(ctx context.Context, data *core.ConfigContainer) error {
-	f := hclwrite.NewEmptyFile()
-	rootBody := f.Body()
-
+	cloudResourcesPerDir := map[string][]*core.DataBag{
+		"": {},
+	}
 	hasAnything := false
 	for resourceType, m := range data.DataBags {
 		if !strings.HasPrefix(resourceType, "cr_") {
 			continue
 		}
-		hasAnything = true
+		for _, group := range m {
+			for _, databag := range group {
+				if databag.Value.Type != core.TokenTypeObjectConst {
+					continue
+				}
 
-		writtenResourceType := resourceType
+				hasAnything = true
+				if subdir := core.GetMeta[string](databag.Value, TerraformSubdirMetaKey); subdir != "" {
+					if _, ok := cloudResourcesPerDir[subdir]; !ok {
+						cloudResourcesPerDir[subdir] = []*core.DataBag{}
+					}
+					cloudResourcesPerDir[subdir] = append(cloudResourcesPerDir[subdir], databag)
+				} else {
+					cloudResourcesPerDir[""] = append(cloudResourcesPerDir[""], databag)
+				}
+			}
+		}
+	}
+	if !hasAnything {
+		return nil
+	}
+
+	for subdir, bags := range cloudResourcesPerDir {
+		err := writeTerraform(ctx, subdir, bags)
+		if err != nil {
+			return errors.Wrap(err, "failed to write terraform in subdir '"+subdir+"'")
+		}
+	}
+
+	return nil
+}
+
+func writeTerraform(ctx context.Context, subdir string, bags []*core.DataBag) error {
+	f := hclwrite.NewEmptyFile()
+	rootBody := f.Body()
+	for _, databag := range bags {
+		writtenResourceType := databag.Type
 		typeName := "resource"
 		if strings.HasPrefix(writtenResourceType, "cr_[") {
 			s := strings.TrimPrefix(writtenResourceType, "cr_[")
@@ -45,38 +83,38 @@ func (t TerraformFormatter) Format(ctx context.Context, data *core.ConfigContain
 		if strings.HasPrefix(typeName, "provider") {
 			typeName = strings.Split(typeName, "(")[0]
 		}
-		for name, group := range m {
-			if name == "request-log_ddb_replica_auto_scaling_write_pol" {
-				log.Debug().Msgf("%#v")
-			}
-			baseLabels := make([]string, 0)
-			if writtenResourceType != "" {
-				baseLabels = append(baseLabels, writtenResourceType)
-			}
-			if name != "" {
-				baseLabels = append(baseLabels, name)
-			}
-			for _, databag := range group {
-				labels := append([]string{}, baseLabels...)
-				labels = append(labels, databag.Labels...)
-				block := rootBody.AppendNewBlock(
-					typeName,
-					labels,
-				)
-				err := populateBlock(block, databag)
-				if err != nil {
-					return err
-				}
-			}
+		labels := make([]string, 0)
+		if writtenResourceType != "" {
+			labels = append(labels, writtenResourceType)
+		}
+		if databag.Name != "" {
+			labels = append(labels, databag.Name)
+		}
+		labels = append(labels, databag.Labels...)
+		if typeName == "terraform" {
+			//terraform blocks never have a label
+			labels = []string{}
+		}
+		block := rootBody.AppendNewBlock(
+			typeName,
+			labels,
+		)
+		err := populateBlock(block, databag)
+		if err != nil {
+			return err
 		}
 	}
 
-	if !hasAnything {
-		return nil
-	}
-
 	outputDir := ctx.Value("maker").(*core.Maker).OutputDir
+	if subdir != "" {
+		outputDir = path.Join(outputDir, subdir)
+	}
 	outputPath := path.Join(outputDir, "generated.tf")
+
+	err := os.MkdirAll(outputDir, 0755)
+	if err != nil {
+		return errors.Wrap(err, "failed to create output dir '"+outputDir+"'")
+	}
 
 	log.Ctx(ctx).Debug().Msgf("Terraform formatter writing to %s", outputPath)
 	o, err := os.Create(outputPath)
@@ -90,15 +128,11 @@ func (t TerraformFormatter) Format(ctx context.Context, data *core.ConfigContain
 		return err
 	}
 
-	chown_util.TryRectifyRootFiles(ctx, []string{outputPath})
-
+	chown_util.TryRectifyRootFiles(ctx, []string{outputDir, outputPath})
 	return nil
 }
 
 func populateBlock(block *hclwrite.Block, databag *core.DataBag) error {
-	if databag.Name == "request-log_ddb_replica_auto_scaling_write_pol" {
-		log.Debug().Msgf("%#v", databag)
-	}
 	val, err := syntaxTokenToHclTokens(databag.Value, nil)
 	if err != nil {
 		return err
