@@ -26,6 +26,7 @@ type Executable struct {
 	Files          []FileDescription
 	TransformSteps []ExecutableStep
 	ApplySteps     []ExecutableStep
+	DestroySteps   []ExecutableStep
 }
 type ExecutableStep struct {
 	Templates []FileDescription
@@ -55,24 +56,6 @@ const (
 	TokenTypeSplat             SyntaxTokenType = "splat"
 	TokenTypeAnonymous         SyntaxTokenType = "anon"
 )
-
-var TokenTypes = map[SyntaxTokenType]struct{}{
-	TokenTypeLiteralValue:      {},
-	TokenTypeScopeTraversal:    {},
-	TokenTypeFunctionCall:      {},
-	TokenTypeTemplate:          {},
-	TokenTypeObjectConst:       {},
-	TokenTypeArrayConst:        {},
-	TokenTypeIndexAccess:       {},
-	TokenTypeFor:               {},
-	TokenTypeRelativeTraversal: {},
-	TokenTypeConditional:       {},
-	TokenTypeBinaryOp:          {},
-	TokenTypeUnaryOp:           {},
-	TokenTypeParens:            {},
-	TokenTypeSplat:             {},
-	TokenTypeAnonymous:         {},
-}
 
 type TraverseType = string
 
@@ -177,9 +160,6 @@ func (t *SyntaxToken) MergeWith(other SyntaxToken) error {
 			existingValues[o.Key] = i
 		}
 		for _, pairOther := range other.ObjectConst {
-			if pairOther.Key == "target_tracking_scaling_policy_configuration" {
-				log.Info().Msgf("%#v", pairOther)
-			}
 			if index, ok := existingValues[pairOther.Key]; ok {
 				err := t.ObjectConst[index].Value.MergeWith(pairOther.Value)
 				if err != nil {
@@ -323,7 +303,15 @@ type Applier interface {
 	Apply(ctx context.Context, container *ConfigContainer) error
 }
 
-func (maker *Maker) Make(ctx context.Context, inputFiles []FileDescription, apply bool) (*ConfigContainer, error) {
+type MakeCommand = string
+
+const (
+	MakeCommandGenerate = "generate"
+	MakeCommandApply    = "apply"
+	MakeCommandDestroy  = "destroy"
+)
+
+func (maker *Maker) Make(ctx context.Context, inputFiles []FileDescription, command MakeCommand) (*ConfigContainer, error) {
 	container := &ConfigContainer{
 		DataBags: map[string]map[string]DataBagGroup{},
 	}
@@ -394,7 +382,8 @@ func (maker *Maker) Make(ctx context.Context, inputFiles []FileDescription, appl
 	}
 	state_display.EndMajorStep("Formatters")
 
-	if apply {
+	switch command {
+	case MakeCommandApply:
 		state_display.StartMajorStep("Appliers")
 		for i, step := range executable.ApplySteps {
 			stepName := fmt.Sprintf("Step %d", i+1)
@@ -421,9 +410,38 @@ func (maker *Maker) Make(ctx context.Context, inputFiles []FileDescription, appl
 			}
 			state_display.EndMajorStep(stepName)
 		}
-
 		state_display.EndMajorStep("Appliers")
+
+	case MakeCommandDestroy:
+		state_display.StartMajorStep("Destroyers")
+		for i, step := range executable.DestroySteps {
+			stepName := fmt.Sprintf("Step %d", i+1)
+			state_display.StartMajorStep(stepName)
+			log.Ctx(ctx).Debug().Msgf("executing step %d", i)
+
+			for _, engine := range maker.Templaters {
+				state_display.StartMinorStep(stepName, engine.Name())
+				log.Ctx(ctx).Debug().Msg("applying template engine: " + engine.Name())
+				t := time.Now()
+
+				err = engine.Apply(ctx, container, step.Templates)
+
+				state_display.EndMinorStep(stepName, engine.Name())
+				log.Ctx(ctx).Debug().Msgf("template engine '%s' took: %v", engine.Name(), time.Since(t))
+
+				if err != nil {
+					return container, errors.Wrap(err, "from template engine '"+engine.Name()+"'")
+				}
+			}
+			err = maker.Apply(ctx, container, stepName)
+			if err != nil {
+				return container, err
+			}
+			state_display.EndMajorStep(stepName)
+		}
+		state_display.EndMajorStep("Destroyers")
 	}
+
 	return container, nil
 }
 

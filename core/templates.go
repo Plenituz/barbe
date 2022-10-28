@@ -41,6 +41,7 @@ type ManifestVersion struct {
 	Files       []string             `json:"files"`
 	Transform   []ManifestStep       `json:"transform"`
 	Apply       []ManifestStep       `json:"apply"`
+	Destroy     []ManifestStep       `json:"destroy"`
 }
 type ManifestStep struct {
 	Templates []string `json:"templates"`
@@ -194,6 +195,21 @@ func applyManifestToExecutable(ctx context.Context, executable *Executable, mani
 				return errors.Wrap(err, "error fetching template '"+template+"'")
 			}
 			executable.ApplySteps[stepIndex].Templates = append(executable.ApplySteps[stepIndex].Templates, FileDescription{
+				Name:    path.Base(template),
+				Content: templateContent,
+			})
+		}
+	}
+	for stepIndex, step := range manifestVersion.Destroy {
+		if stepIndex >= len(executable.DestroySteps) {
+			executable.DestroySteps = append(executable.DestroySteps, ExecutableStep{})
+		}
+		for _, template := range step.Templates {
+			templateContent, err := fetchFile(template)
+			if err != nil {
+				return errors.Wrap(err, "error fetching template '"+template+"'")
+			}
+			executable.DestroySteps[stepIndex].Templates = append(executable.DestroySteps[stepIndex].Templates, FileDescription{
 				Name:    path.Base(template),
 				Content: templateContent,
 			})

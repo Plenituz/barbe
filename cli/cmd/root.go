@@ -29,6 +29,7 @@ func init() {
 		versionCmd,
 		generateCmd,
 		applyCmd,
+		destroyCmd,
 	)
 	rootCmd.CompletionOptions.HiddenDefaultCmd = true
 

@@ -6,19 +6,16 @@ import (
 	"barbe/cli/logger"
 	"barbe/core"
 	"context"
-	"encoding/json"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"os"
-	"path"
 )
 
-var generateCmd = &cobra.Command{
-	Use:     "generate [GLOB...]",
-	Short:   "Generate files based on the given configuration",
+var destroyCmd = &cobra.Command{
+	Use:     "destroy [GLOB...]",
+	Short:   "Generate files based on the given configuration, and execute all the appliers that will destroy the previously deployed resources",
 	Args:    cobra.ArbitraryArgs,
-	Example: "barbe generate config.hcl --output dist\nbarbe generate **/*.hcl --output dist",
+	Example: "barbe destroy config.hcl\nbarbe destroy **/*.hcl --output dist",
 	Run: func(cmd *cobra.Command, args []string) {
 		if err := viper.BindPFlags(cmd.Flags()); err != nil {
 			panic(err)
@@ -46,27 +43,14 @@ var generateCmd = &cobra.Command{
 			EventProperties: map[string]interface{}{
 				"Files":     fileNames,
 				"FileCount": len(allFiles),
-				"Command":   "generate",
+				"Command":   "apply",
 			},
 		})
 
 		err = cliutils.IterateDirectories(ctx, allFiles, func(files []core.FileDescription, ctx context.Context, maker *core.Maker) error {
-			container, err := maker.Make(ctx, files, core.MakeCommandGenerate)
+			_, err = maker.Make(ctx, files, core.MakeCommandDestroy)
 			if err != nil {
 				log.Ctx(ctx).Fatal().Err(err).Msg("generation failed")
-			}
-			if viper.GetBool("debug-bags") {
-				b, err := json.MarshalIndent(container, "", "  ")
-				if err != nil {
-					log.Ctx(ctx).Error().Err(err).Msg("failed to marshal container (for --debug-bags)")
-				} else {
-					outputFile := path.Join(maker.OutputDir, "debug-bags.json")
-					err = os.WriteFile(outputFile, b, 0644)
-					if err != nil {
-						log.Ctx(ctx).Error().Err(err).Msg("failed to write debug-bags.json")
-					}
-					log.Ctx(ctx).Info().Msg("wrote databags at '" + outputFile + "'")
-				}
 			}
 			return nil
 		})

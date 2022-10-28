@@ -80,7 +80,7 @@ func writeTerraform(ctx context.Context, subdir string, bags []*core.DataBag) er
 		} else {
 			writtenResourceType = strings.TrimPrefix(writtenResourceType, "cr_")
 		}
-		if strings.HasPrefix(typeName, "provider") {
+		if strings.Contains(typeName, "(") {
 			typeName = strings.Split(typeName, "(")[0]
 		}
 		labels := make([]string, 0)

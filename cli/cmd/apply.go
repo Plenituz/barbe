@@ -48,7 +48,7 @@ var applyCmd = &cobra.Command{
 		})
 
 		err = cliutils.IterateDirectories(ctx, allFiles, func(files []core.FileDescription, ctx context.Context, maker *core.Maker) error {
-			_, err = maker.Make(ctx, files, true)
+			_, err = maker.Make(ctx, files, core.MakeCommandApply)
 			if err != nil {
 				log.Ctx(ctx).Fatal().Err(err).Msg("generation failed")
 			}
