@@ -54,33 +54,39 @@ func ReadAllFilesMatching(ctx context.Context, globExprs []string) ([]core.FileD
 func IterateDirectories(ctx context.Context, allFiles []core.FileDescription, f func(dirFiles []core.FileDescription, ctx context.Context, maker *core.Maker) error) error {
 	grouped := groupFilesByDirectory(allFiles)
 	for dir, files := range grouped {
-		log.Ctx(ctx).Debug().Msg("executing maker for directory: '" + dir + "'")
-		fileNames := make([]string, 0, len(files))
-		for _, file := range files {
-			fileNames = append(fileNames, file.Name)
-		}
-		log.Ctx(ctx).Debug().Msg("with files: [" + strings.Join(fileNames, ", ") + "]")
+		err := func() error {
+			log.Ctx(ctx).Debug().Msg("executing maker for directory: '" + dir + "'")
+			fileNames := make([]string, 0, len(files))
+			for _, file := range files {
+				fileNames = append(fileNames, file.Name)
+			}
+			log.Ctx(ctx).Debug().Msg("with files: [" + strings.Join(fileNames, ", ") + "]")
 
-		maker := makeMaker(path.Join(viper.GetString("output"), dir))
-		innerCtx := context.WithValue(ctx, "maker", maker)
+			maker := makeMaker(path.Join(viper.GetString("output"), dir))
+			innerCtx := context.WithValue(ctx, "maker", maker)
 
-		err := os.MkdirAll(maker.OutputDir, 0755)
-		if err != nil {
-			log.Ctx(innerCtx).Fatal().Err(err).Msg("failed to create output directory")
-		}
-		chown_util.TryRectifyRootFiles(innerCtx, []string{maker.OutputDir})
+			err := os.MkdirAll(maker.OutputDir, 0755)
+			if err != nil {
+				log.Ctx(innerCtx).Fatal().Err(err).Msg("failed to create output directory")
+			}
+			defer chown_util.TryRectifyRootFiles(innerCtx, []string{maker.OutputDir})
 
-		err = f(files, innerCtx, maker)
+			err = f(files, innerCtx, maker)
+			if err != nil {
+				return err
+			}
+
+			allPaths := make([]string, 0)
+			filepath.WalkDir(maker.OutputDir, func(path string, d fs.DirEntry, err error) error {
+				allPaths = append(allPaths, path)
+				return nil
+			})
+			defer chown_util.TryRectifyRootFiles(innerCtx, allPaths)
+			return nil
+		}()
 		if err != nil {
 			return err
 		}
-
-		allPaths := make([]string, 0)
-		filepath.WalkDir(maker.OutputDir, func(path string, d fs.DirEntry, err error) error {
-			allPaths = append(allPaths, path)
-			return nil
-		})
-		chown_util.TryRectifyRootFiles(innerCtx, allPaths)
 	}
 	return nil
 }

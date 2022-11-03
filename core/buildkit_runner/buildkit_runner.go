@@ -435,7 +435,7 @@ func executeRunner(ctx context.Context, executable runnerExecutable, container *
 	for _, v := range executable.ExportedFiles {
 		exportedFiles = append(exportedFiles, path.Join(outputDir, v))
 	}
-	chown_util.TryRectifyRootFiles(ctx, exportedFiles)
+	defer chown_util.TryRectifyRootFiles(ctx, exportedFiles)
 
 	readBackFiles := make([]core.FileDescription, 0, len(executable.ReadBackFiles))
 	for _, file := range executable.ReadBackFiles {

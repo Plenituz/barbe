@@ -116,10 +116,6 @@ func traversalToString(traversal []core.Traverse) (string, error) {
 	return str, nil
 }
 
-func s(s string) *string {
-	return &s
-}
-
 func stringToTraversal(str string) ([]core.Traverse, error) {
 	split := strings.Split(str, ".")
 	traversal := make([]core.Traverse, 0, len(split))
@@ -132,7 +128,7 @@ func stringToTraversal(str string) ([]core.Traverse, error) {
 		} else {
 			traversal = append(traversal, core.Traverse{
 				Type: core.TraverseTypeAttr,
-				Name: s(item),
+				Name: core.Ptr(item),
 			})
 		}
 	}

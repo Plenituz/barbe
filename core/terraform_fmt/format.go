@@ -110,6 +110,7 @@ func writeTerraform(ctx context.Context, subdir string, bags []*core.DataBag) er
 		outputDir = path.Join(outputDir, subdir)
 	}
 	outputPath := path.Join(outputDir, "generated.tf")
+	defer chown_util.TryRectifyRootFiles(ctx, []string{outputDir, outputPath})
 
 	err := os.MkdirAll(outputDir, 0755)
 	if err != nil {
@@ -127,8 +128,6 @@ func writeTerraform(ctx context.Context, subdir string, bags []*core.DataBag) er
 	if err != nil {
 		return err
 	}
-
-	chown_util.TryRectifyRootFiles(ctx, []string{outputDir, outputPath})
 	return nil
 }
 

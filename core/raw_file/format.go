@@ -60,6 +60,10 @@ func applyRawFile(ctx context.Context, databag *core.DataBag) error {
 	if outputPath == "" {
 		return errors.New("raw_file.path must be defined")
 	}
+	defer chown_util.TryRectifyRootFiles(ctx, []string{
+		path.Dir(outputPath),
+		outputPath,
+	})
 
 	err := os.MkdirAll(path.Dir(outputPath), 0755)
 	if err != nil {
@@ -70,9 +74,5 @@ func applyRawFile(ctx context.Context, databag *core.DataBag) error {
 	if err != nil {
 		return errors.Wrap(err, "error writing file at '"+outputPath+"'")
 	}
-	chown_util.TryRectifyRootFiles(ctx, []string{
-		path.Dir(outputPath),
-		outputPath,
-	})
 	return nil
 }

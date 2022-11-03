@@ -1,6 +1,7 @@
 package hcl_parser
 
 import (
+	"barbe/core"
 	"fmt"
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/ext/tryfunc"
@@ -10,7 +11,6 @@ import (
 	"github.com/zclconf/go-cty/cty/function"
 	"github.com/zclconf/go-cty/cty/function/stdlib"
 	"reflect"
-	"barbe/core"
 	"strings"
 )
 
@@ -500,7 +500,7 @@ func BlockToEvalContext(block *hclsyntax.Block, others []*hclsyntax.Block) (*hcl
 						//TODO add support for indexing
 						source.Traversal = append(source.Traversal, core.Traverse{
 							Type: core.TraverseTypeAttr,
-							Name: s(str),
+							Name: core.Ptr(str),
 						})
 					}
 					return MarshalSyntaxToken(source)
@@ -523,7 +523,7 @@ func BlockToEvalContext(block *hclsyntax.Block, others []*hclsyntax.Block) (*hcl
 						//TODO add support for indexing
 						traverse = append(traverse, core.Traverse{
 							Type: core.TraverseTypeAttr,
-							Name: s(str),
+							Name: core.Ptr(str),
 						})
 					}
 					syntaxToken := core.SyntaxToken{

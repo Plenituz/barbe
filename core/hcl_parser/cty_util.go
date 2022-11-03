@@ -1,10 +1,10 @@
 package hcl_parser
 
 import (
+	"barbe/core"
 	"fmt"
 	"github.com/pkg/errors"
 	"github.com/zclconf/go-cty/cty"
-	"barbe/core"
 )
 
 func UnmarshalDatabags(v cty.Value) ([]core.DataBag, error) {
@@ -124,7 +124,7 @@ func UnmarshalSyntaxToken(v cty.Value) (core.SyntaxToken, error) {
 		}
 	}
 	if v.Type().HasAttribute("FunctionName") {
-		output.FunctionName = s(v.GetAttr("FunctionName").AsString())
+		output.FunctionName = core.Ptr(v.GetAttr("FunctionName").AsString())
 	}
 	if v.Type().HasAttribute("FunctionArgs") {
 		for _, item := range v.GetAttr("FunctionArgs").AsValueSlice() {
@@ -166,10 +166,10 @@ func UnmarshalSyntaxToken(v cty.Value) (core.SyntaxToken, error) {
 		output.Source = core.TokenPtr(source)
 	}
 	if v.Type().HasAttribute("ForKeyVar") {
-		output.ForKeyVar = s(v.GetAttr("ForKeyVar").AsString())
+		output.ForKeyVar = core.Ptr(v.GetAttr("ForKeyVar").AsString())
 	}
 	if v.Type().HasAttribute("ForValVar") {
-		output.ForValVar = s(v.GetAttr("ForValVar").AsString())
+		output.ForValVar = core.Ptr(v.GetAttr("ForValVar").AsString())
 	}
 	if v.Type().HasAttribute("ForCollExpr") {
 		forCollExpr, err := UnmarshalSyntaxToken(v.GetAttr("ForCollExpr"))
@@ -235,7 +235,7 @@ func UnmarshalSyntaxToken(v cty.Value) (core.SyntaxToken, error) {
 		output.LeftHandSide = core.TokenPtr(lhs)
 	}
 	if v.Type().HasAttribute("Operator") {
-		output.Operator = s(v.GetAttr("Operator").AsString())
+		output.Operator = core.Ptr(v.GetAttr("Operator").AsString())
 	}
 	if v.Type().HasAttribute("SplatEach") {
 		splateach, err := UnmarshalSyntaxToken(v.GetAttr("SplatEach"))
@@ -408,10 +408,6 @@ func MarshalSyntaxToken(v core.SyntaxToken) (cty.Value, error) {
 	return cty.ObjectVal(output), nil
 }
 
-func s(s string) *string {
-	return &s
-}
-
 func extractStringValueCty(attr cty.Value) (string, error) {
 	if attr.Type() == cty.String {
 		return attr.AsString(), nil
@@ -435,7 +431,7 @@ func unmarshalTraversal(v cty.Value) ([]core.Traverse, error) {
 			if nameAttr.Type() != cty.String {
 				return output, errors.New("traversal name must be a string")
 			}
-			t.Name = s(nameAttr.AsString())
+			t.Name = core.Ptr(nameAttr.AsString())
 		}
 		if item.Type().HasAttribute("Index") {
 			indexAttr := item.GetAttr("Index")
