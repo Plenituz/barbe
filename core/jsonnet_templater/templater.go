@@ -53,6 +53,15 @@ type sugarBag struct {
 
 type visitor = func(token ast.Node) (ast.Node, error)
 
+type jsonnetProcedure struct {
+	Id          string
+	fileContent []byte
+}
+
+func (p *jsonnetProcedure) Execute(vm *jsonnet.VM) (string, error) {
+	return vm.EvaluateAnonymousSnippet(p.Id, "std.extVar(\"barbe-proc-"+p.Id+"\")(std.extVar(\"container\"))")
+}
+
 func visitJsonnetAst(ctx context.Context, root ast.Node, visitor visitor) (ast.Node, error) {
 	if core.InterfaceIsNil(root) {
 		return root, nil
@@ -231,20 +240,27 @@ func visitJsonnetAst(ctx context.Context, root ast.Node, visitor visitor) (ast.N
 	}
 }
 
-func applyTemplate(ctx context.Context, container *core.ConfigContainer, templates []core.FileDescription) error {
-	vm := jsonnet.MakeVM()
-	procedureCache := map[string]*ast.Function{}
-
+func populateContainerInVm(vm *jsonnet.VM, container *core.ConfigContainer) error {
 	ctxObjJson, err := json.Marshal(container.DataBags)
 	if err != nil {
 		return errors.Wrap(err, "failed to marshal context object")
 	}
+	vm.ExtCode("container", string(ctxObjJson))
+	return nil
+}
+
+func applyTemplate(ctx context.Context, container *core.ConfigContainer, templates []core.FileDescription) error {
+	vm := jsonnet.MakeVM()
+	procedureCache := map[string]jsonnetProcedure{}
 
 	env, err := envMap()
 	if err != nil {
 		return errors.Wrap(err, "failed to marshal env map")
 	}
-	vm.ExtCode("container", string(ctxObjJson))
+	err = populateContainerInVm(vm, container)
+	if err != nil {
+		return errors.Wrap(err, "failed to populate container in vm")
+	}
 	vm.ExtCode("barbe", Builtins)
 	vm.ExtVar("barbe_output_dir", ctx.Value("maker").(*core.Maker).OutputDir)
 	vm.ExtCode("env", env)
@@ -298,9 +314,13 @@ func applyTemplate(ctx context.Context, container *core.ConfigContainer, templat
 		if err != nil {
 			return errors.Wrap(err, "failed to parse jsonnet template")
 		}
-		node, err = extractProcedures(ctx, node, procedureCache)
+
+		node, procs, err := extractProcedures(ctx, node, vm, templateFile.Content)
 		if err != nil {
 			return errors.Wrap(err, "failed to transform jsonnet template")
+		}
+		for _, proc := range procs {
+			procedureCache[proc.Id] = proc
 		}
 		jsonStr, err := vm.Evaluate(node)
 		if err != nil {
@@ -347,14 +367,13 @@ func applyTemplate(ctx context.Context, container *core.ConfigContainer, templat
 				if !ok {
 					return errors.New("procedure '" + procedureId + "' not found")
 				}
-				callBootstrap, err := jsonnet.SnippetToAST("boostrap", "std.tmp(std.extVar(\"container\"))")
-				if err != nil {
-					return errors.Wrap(err, "failed to parse jsonnet template")
-				}
-				funcCall := callBootstrap.(*ast.Apply)
-				funcCall.Target = procedure
 
-				jsonStr, err := vm.Evaluate(funcCall)
+				err = populateContainerInVm(vm, container)
+				if err != nil {
+					return errors.Wrap(err, "failed to populate container in vm")
+				}
+
+				jsonStr, err := procedure.Execute(vm)
 				if err != nil {
 					return formatJsonnetError(ctx, "procedure:"+procedureId, err)
 				}
@@ -366,8 +385,12 @@ func applyTemplate(ctx context.Context, container *core.ConfigContainer, templat
 	return nil
 }
 
-func extractProcedures(ctx context.Context, node ast.Node, procedureCache map[string]*ast.Function) (ast.Node, error) {
-	node, err := visitJsonnetAst(ctx, node, func(token ast.Node) (ast.Node, error) {
+func extractProcedures(ctx context.Context, originalAst ast.Node, vm *jsonnet.VM, f []byte) (modifiedAst ast.Node, procedures []jsonnetProcedure, e error) {
+
+	procedureIds := make([]string, 0)
+	//procedureAst := make([]ast.Node, 0)
+
+	astWithProcIds, err := visitJsonnetAst(ctx, ast.Clone(originalAst), func(token ast.Node) (ast.Node, error) {
 		if funcCall, ok := token.(*ast.Apply); ok {
 			if ind, ok := funcCall.Target.(*ast.Index); ok {
 				if varName, ok := ind.Target.(*ast.Var); ok {
@@ -377,7 +400,11 @@ func extractProcedures(ctx context.Context, node ast.Node, procedureCache map[st
 								//the first argument is a function
 								if funcArg, ok := funcCall.Arguments.Positional[0].Expr.(*ast.Function); ok {
 									id := uuid.NewString()
-									procedureCache[id] = funcArg
+									procedureIds = append(procedureIds, id)
+									//procedureAst = append(procedureAst, funcArg)
+									vm.ExtNode("barbe-proc-"+id, ast.Clone(funcArg))
+									fmt.Println(ind.Loc().String())
+									//newfile := string(f[:ind.Loc().Begin().Col-1]) + "barbe-proc-" + id + string(f[ind.Loc().End().Col-1:])
 									return &ast.LiteralString{Value: id}, nil
 								}
 							}
@@ -389,9 +416,81 @@ func extractProcedures(ctx context.Context, node ast.Node, procedureCache map[st
 		return nil, nil
 	})
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to visit jsonnet ast")
+		return nil, nil, errors.Wrap(err, "failed to visit jsonnet ast")
 	}
-	return node, nil
+
+	procedures = make([]jsonnetProcedure, 0, len(procedureIds))
+	for _, id := range procedureIds {
+		proc, err := makeJsonnetProcedure(ctx, id, ast.Clone(procedureAst[i]), ast.Clone(astWithProcIds))
+		if err != nil {
+			return nil, nil, errors.Wrap(err, "failed to make jsonnet procedure")
+		}
+		procedures = append(procedures, jsonnetProcedure{
+			Id: id,
+		})
+	}
+	return astWithProcIds, procedures, nil
+}
+
+func makeJsonnetProcedure(ctx context.Context, id string, procedureAst ast.Node, astWithIds ast.Node) (jsonnetProcedure, error) {
+	funcCall := &ast.Apply{
+		NodeBase: ast.NodeBase{
+			//LocRange: loc,
+			FreeVars: ast.Identifiers{"std"},
+		},
+		Target: procedureAst,
+		Arguments: ast.Arguments{
+			Positional: []ast.CommaSeparatedExpr{
+				{
+					Expr: &ast.Apply{
+						NodeBase: ast.NodeBase{
+							//LocRange: loc,
+							FreeVars: ast.Identifiers{"std"},
+						},
+						Target: &ast.Index{
+							Target: &ast.Var{
+								NodeBase: ast.NodeBase{
+									FreeVars: ast.Identifiers{"std"},
+								},
+								Id: "std",
+							},
+							Index: &ast.LiteralString{
+								Kind:  ast.StringDouble,
+								Value: "extVar",
+							},
+						},
+						Arguments: ast.Arguments{
+							Positional: []ast.CommaSeparatedExpr{
+								{
+									Expr: &ast.LiteralString{
+										Kind:  ast.StringDouble,
+										Value: "container",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	//TODO we could avoid re-walking the whole tree by storing the path to the AST node directly
+	finalAst, err := visitJsonnetAst(ctx, ast.Clone(astWithIds), func(token ast.Node) (ast.Node, error) {
+		if idNode, ok := token.(*ast.LiteralString); ok {
+			if idNode.Value == id {
+				return funcCall, nil
+			}
+		}
+		return nil, nil
+	})
+	if err != nil {
+		return jsonnetProcedure{}, errors.Wrap(err, "error modifiying ast for jsonnet procedure")
+	}
+	return jsonnetProcedure{
+		Id:   id,
+		root: finalAst,
+	}, nil
 }
 
 func formatJsonnetError(ctx context.Context, templateFileName string, err error) error {

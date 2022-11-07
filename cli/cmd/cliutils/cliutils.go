@@ -152,36 +152,36 @@ func groupFilesByDirectory(files []core.FileDescription) map[string][]core.FileD
 }
 
 func makeMaker(dir string) *core.Maker {
-	return &core.Maker{
-		OutputDir: dir,
-		Parsers: []core.Parser{
-			hcl_parser.HclParser{},
-			json_parser.JsonParser{},
-		},
-		PreTransformers: []core.Transformer{
-			simplifier_transform.SimplifierTransformer{},
-		},
-		Templaters: []core.TemplateEngine{
-			//hcl_templater.HclTemplater{},
-			//cue_templater.CueTemplater{},
-			jsonnet_templater.JsonnetTemplater{},
-		},
-		Transformers: []core.Transformer{
-			//the simplifier being first is very important, it simplifies syntax that is equivalent
-			//to make it a lot easier for the transformers to work with
-			simplifier_transform.SimplifierTransformer{},
-			traversal_manipulator.TraversalManipulator{},
-			aws_session_provider.AwsSessionProviderTransformer{},
-			gcp_token_provider.GcpTokenProviderTransformer{},
-			buildkit_runner.BuildkitRunner{},
-		},
-		Formatters: []core.Formatter{
-			terraform_fmt.TerraformFormatter{},
-			zipper_fmt.ZipperFormatter{},
-			raw_file.RawFileFormatter{},
-		},
-		Appliers: []core.Applier{
-			buildkit_runner.BuildkitRunner{},
-		},
+	maker := core.NewMaker()
+	maker.OutputDir = dir
+	maker.Parsers = []core.Parser{
+		hcl_parser.HclParser{},
+		json_parser.JsonParser{},
 	}
+	maker.PreTransformers = []core.Transformer{
+		simplifier_transform.SimplifierTransformer{},
+	}
+	maker.Templaters = []core.TemplateEngine{
+		//hcl_templater.HclTemplater{},
+		//cue_templater.CueTemplater{},
+		jsonnet_templater.JsonnetTemplater{},
+	}
+	maker.Transformers = []core.Transformer{
+		//the simplifier being first is very important, it simplifies syntax that is equivalent
+		//to make it a lot easier for the transformers to work with
+		simplifier_transform.SimplifierTransformer{},
+		traversal_manipulator.TraversalManipulator{},
+		aws_session_provider.AwsSessionProviderTransformer{},
+		gcp_token_provider.GcpTokenProviderTransformer{},
+		buildkit_runner.BuildkitRunner{},
+	}
+	maker.Formatters = []core.Formatter{
+		terraform_fmt.TerraformFormatter{},
+		zipper_fmt.ZipperFormatter{},
+		raw_file.RawFileFormatter{},
+	}
+	maker.Appliers = []core.Applier{
+		buildkit_runner.BuildkitRunner{},
+	}
+	return maker
 }

@@ -19,6 +19,20 @@ type Maker struct {
 	Transformers    []Transformer
 	Formatters      []Formatter
 	Appliers        []Applier
+
+	stateHandler *StateHandler
+}
+
+func NewMaker() *Maker {
+	maker := &Maker{}
+	stateHandler := NewStateHandler(maker)
+	//we always add a memory persister in case some templates rely on the state "API" to pass values between steps
+	err := stateHandler.AddPersister(NewMemoryStatePersister())
+	if err != nil {
+		panic(err)
+	}
+	maker.stateHandler = stateHandler
+	return maker
 }
 
 type Executable struct {
@@ -320,24 +334,13 @@ const (
 )
 
 func (maker *Maker) Make(ctx context.Context, inputFiles []FileDescription, command MakeCommand) (*ConfigContainer, error) {
-	stateHandler := NewStateHandler(maker)
-	//we always add a memory persister in case some templates rely on the state "API" to pass values between steps
-	err := stateHandler.AddPersister(NewMemoryStatePersister())
-	if err != nil {
-		return nil, errors.Wrap(err, "error adding memory state persister")
-	}
-
 	container := &ConfigContainer{
 		DataBags: map[string]map[string]DataBagGroup{},
 	}
 
-	err = maker.ParseFiles(ctx, inputFiles, container)
+	err := maker.ParseFiles(ctx, inputFiles, container)
 	if err != nil {
 		return container, errors.Wrap(err, "error parsing input files")
-	}
-	err = stateHandler.DatabagsChanged(ctx, container)
-	if err != nil {
-		return container, errors.Wrap(err, "error creating persisters")
 	}
 
 	t := time.Now()
@@ -357,10 +360,6 @@ func (maker *Maker) Make(ctx context.Context, inputFiles []FileDescription, comm
 	if err != nil {
 		return container, errors.Wrap(err, "error parsing files from manifest")
 	}
-	err = stateHandler.DatabagsChanged(ctx, container)
-	if err != nil {
-		return container, errors.Wrap(err, "error creating persisters")
-	}
 
 	state_display.StartMajorStep("Pre-transform")
 	err = maker.PreTransform(ctx, container)
@@ -368,10 +367,6 @@ func (maker *Maker) Make(ctx context.Context, inputFiles []FileDescription, comm
 		return container, err
 	}
 	state_display.EndMajorStep("Pre-transform")
-	err = stateHandler.DatabagsChanged(ctx, container)
-	if err != nil {
-		return container, errors.Wrap(err, "error creating persisters")
-	}
 
 	for i, step := range executable.TransformSteps {
 		stepName := fmt.Sprintf("Step %d", i+1)
@@ -395,10 +390,6 @@ func (maker *Maker) Make(ctx context.Context, inputFiles []FileDescription, comm
 		err = maker.Transform(ctx, container, stepName)
 		if err != nil {
 			return container, err
-		}
-		err = stateHandler.DatabagsChanged(ctx, container)
-		if err != nil {
-			return container, errors.Wrap(err, "error creating persisters")
 		}
 		state_display.EndMajorStep(stepName)
 	}
@@ -439,10 +430,6 @@ func (maker *Maker) Make(ctx context.Context, inputFiles []FileDescription, comm
 			if err != nil {
 				return container, err
 			}
-			err = stateHandler.DatabagsChanged(ctx, container)
-			if err != nil {
-				return container, errors.Wrap(err, "error creating persisters")
-			}
 			state_display.EndMajorStep(stepName)
 		}
 		state_display.EndMajorStep("Appliers")
@@ -472,10 +459,6 @@ func (maker *Maker) Make(ctx context.Context, inputFiles []FileDescription, comm
 			if err != nil {
 				return container, err
 			}
-			err = stateHandler.DatabagsChanged(ctx, container)
-			if err != nil {
-				return container, errors.Wrap(err, "error creating persisters")
-			}
 			state_display.EndMajorStep(stepName)
 		}
 		state_display.EndMajorStep("Destroyers")
@@ -501,6 +484,10 @@ func (maker *Maker) ParseFiles(ctx context.Context, files []FileDescription, con
 			}
 		}
 	}
+	err := maker.stateHandler.DatabagsChanged(ctx, container)
+	if err != nil {
+		return errors.Wrap(err, "error creating persisters")
+	}
 	return nil
 }
 
@@ -513,6 +500,10 @@ func (maker *Maker) PreTransform(ctx context.Context, container *ConfigContainer
 		if err != nil {
 			return err
 		}
+	}
+	err := maker.stateHandler.DatabagsChanged(ctx, container)
+	if err != nil {
+		return errors.Wrap(err, "error creating persisters")
 	}
 	return nil
 }
@@ -529,6 +520,10 @@ func (maker *Maker) Transform(ctx context.Context, container *ConfigContainer, d
 			return err
 		}
 	}
+	err := maker.stateHandler.DatabagsChanged(ctx, container)
+	if err != nil {
+		return errors.Wrap(err, "error creating persisters")
+	}
 	return nil
 }
 
@@ -541,6 +536,10 @@ func (maker *Maker) Apply(ctx context.Context, container *ConfigContainer, displ
 		if err != nil {
 			return err
 		}
+	}
+	err := maker.stateHandler.DatabagsChanged(ctx, container)
+	if err != nil {
+		return errors.Wrap(err, "error creating persisters")
 	}
 	return nil
 }
