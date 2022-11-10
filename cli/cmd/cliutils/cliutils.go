@@ -5,6 +5,7 @@ import (
 	"barbe/core/aws_session_provider"
 	"barbe/core/buildkit_runner"
 	"barbe/core/chown_util"
+	"barbe/core/fetcher"
 	"barbe/core/gcp_token_provider"
 	"barbe/core/hcl_parser"
 	"barbe/core/json_parser"
@@ -24,8 +25,8 @@ import (
 	"strings"
 )
 
-func ReadAllFilesMatching(ctx context.Context, globExprs []string) ([]core.FileDescription, error) {
-	allFiles := make([]core.FileDescription, 0)
+func ReadAllFilesMatching(ctx context.Context, globExprs []string) ([]fetcher.FileDescription, error) {
+	allFiles := make([]fetcher.FileDescription, 0)
 	dedupMap := make(map[string]struct{})
 	for _, globExpr := range globExprs {
 		matches, err := glob(globExpr)
@@ -42,7 +43,7 @@ func ReadAllFilesMatching(ctx context.Context, globExprs []string) ([]core.FileD
 				continue
 			}
 			dedupMap[match] = struct{}{}
-			allFiles = append(allFiles, core.FileDescription{
+			allFiles = append(allFiles, fetcher.FileDescription{
 				Name:    match,
 				Content: fileContent,
 			})
@@ -51,7 +52,7 @@ func ReadAllFilesMatching(ctx context.Context, globExprs []string) ([]core.FileD
 	return allFiles, nil
 }
 
-func IterateDirectories(ctx context.Context, allFiles []core.FileDescription, f func(dirFiles []core.FileDescription, ctx context.Context, maker *core.Maker) error) error {
+func IterateDirectories(ctx context.Context, command core.MakeCommand, allFiles []fetcher.FileDescription, f func(dirFiles []fetcher.FileDescription, ctx context.Context, maker *core.Maker) error) error {
 	grouped := groupFilesByDirectory(allFiles)
 	for dir, files := range grouped {
 		err := func() error {
@@ -62,7 +63,7 @@ func IterateDirectories(ctx context.Context, allFiles []core.FileDescription, f 
 			}
 			log.Ctx(ctx).Debug().Msg("with files: [" + strings.Join(fileNames, ", ") + "]")
 
-			maker := makeMaker(path.Join(viper.GetString("output"), dir))
+			maker := makeMaker(command, path.Join(viper.GetString("output"), dir))
 			innerCtx := context.WithValue(ctx, "maker", maker)
 
 			err := os.MkdirAll(maker.OutputDir, 0755)
@@ -77,11 +78,14 @@ func IterateDirectories(ctx context.Context, allFiles []core.FileDescription, f 
 			}
 
 			allPaths := make([]string, 0)
-			filepath.WalkDir(maker.OutputDir, func(path string, d fs.DirEntry, err error) error {
+			defer chown_util.TryRectifyRootFiles(innerCtx, allPaths)
+			err = filepath.WalkDir(maker.OutputDir, func(path string, d fs.DirEntry, err error) error {
 				allPaths = append(allPaths, path)
 				return nil
 			})
-			defer chown_util.TryRectifyRootFiles(innerCtx, allPaths)
+			if err != nil {
+				return err
+			}
 			return nil
 		}()
 		if err != nil {
@@ -142,8 +146,8 @@ func expand(globs []string) ([]string, error) {
 	return matches, nil
 }
 
-func groupFilesByDirectory(files []core.FileDescription) map[string][]core.FileDescription {
-	result := make(map[string][]core.FileDescription)
+func groupFilesByDirectory(files []fetcher.FileDescription) map[string][]fetcher.FileDescription {
+	result := make(map[string][]fetcher.FileDescription)
 	for _, file := range files {
 		dir := filepath.Dir(file.Name)
 		result[dir] = append(result[dir], file)
@@ -151,8 +155,8 @@ func groupFilesByDirectory(files []core.FileDescription) map[string][]core.FileD
 	return result
 }
 
-func makeMaker(dir string) *core.Maker {
-	maker := core.NewMaker()
+func makeMaker(command core.MakeCommand, dir string) *core.Maker {
+	maker := core.NewMaker(command)
 	maker.OutputDir = dir
 	maker.Parsers = []core.Parser{
 		hcl_parser.HclParser{},

@@ -2,6 +2,7 @@ package json_parser
 
 import (
 	"barbe/core"
+	"barbe/core/fetcher"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -18,30 +19,45 @@ func (j JsonParser) Name() string {
 	return "json_parser"
 }
 
-func (j JsonParser) CanParse(ctx context.Context, fileDesc core.FileDescription) (bool, error) {
+func (j JsonParser) CanParse(ctx context.Context, fileDesc fetcher.FileDescription) (bool, error) {
 	return strings.HasSuffix(strings.ToLower(fileDesc.Name), ".json"), nil
 }
 
-func (j JsonParser) Parse(ctx context.Context, fileDesc core.FileDescription, container *core.ConfigContainer) error {
+func (j JsonParser) Parse(ctx context.Context, fileDesc fetcher.FileDescription, container *core.ConfigContainer) error {
 	var raw map[string]interface{}
 	if err := json.Unmarshal(fileDesc.Content, &raw); err != nil {
 		return errors.Wrap(err, "failed to parse json")
 	}
 
 	for typeName, v := range raw {
-		var rawType map[string]interface{}
+		var rawType interface{}
 		if err := mapstructure.Decode(v, &rawType); err != nil {
-			log.Ctx(ctx).Warn().Err(err).Msg("key '" + typeName + "' is not a map")
+			log.Ctx(ctx).Warn().Err(err).Msg("key '" + typeName + "' is not unmarshallable")
 			return errors.Wrap(err, "failed to parse json")
 		}
-
-		for name, tokenI := range rawType {
-			token, err := parsedJsonToToken(tokenI)
+		if mapType, ok := rawType.(map[string]interface{}); ok {
+			for name, tokenI := range mapType {
+				token, err := parsedJsonToToken(tokenI)
+				if err != nil {
+					return errors.Wrap(err, "failed to parse json")
+				}
+				bag := core.DataBag{
+					Name:   name,
+					Type:   typeName,
+					Labels: []string{},
+					Value:  token,
+				}
+				if err := container.Insert(bag); err != nil {
+					return errors.Wrap(err, "couldn't insert databag")
+				}
+			}
+		} else {
+			token, err := parsedJsonToToken(rawType)
 			if err != nil {
 				return errors.Wrap(err, "failed to parse json")
 			}
 			bag := core.DataBag{
-				Name:   name,
+				Name:   "",
 				Type:   typeName,
 				Labels: []string{},
 				Value:  token,

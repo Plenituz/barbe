@@ -7,21 +7,16 @@ import (
 )
 
 type TemplateBlock struct {
-	Files     []string
-	Templates []string
-	Manifests []ManifestLink
-}
-
-type ManifestLink struct {
-	VersionConstraint version.Constraints
-	ManifestUrl       string
+	Files      []string
+	Components []string
+	Manifests  []string
 }
 
 func parseTemplateBlock(templateConfig []*DataBag) (TemplateBlock, error) {
 	template := TemplateBlock{
-		Files:     []string{},
-		Templates: []string{},
-		Manifests: []ManifestLink{},
+		Files:      []string{},
+		Components: []string{},
+		Manifests:  []string{},
 	}
 	for _, t := range templateConfig {
 		attrs, err := extractBlockAttrs(t.Value)
@@ -48,8 +43,8 @@ func parseTemplateBlock(templateConfig []*DataBag) (TemplateBlock, error) {
 		}
 
 		templateKeys := map[string]struct{}{
-			"templates": {},
-			"template":  {},
+			"components": {},
+			"component":  {},
 		}
 		templateKeyValues := GetObjectKeysValues(templateKeys, attrs)
 		for _, templateSyntax := range templateKeyValues {
@@ -57,10 +52,14 @@ func parseTemplateBlock(templateConfig []*DataBag) (TemplateBlock, error) {
 			if err != nil {
 				return template, errors.Wrap(err, fmt.Sprintf("error parsing 'template.%stemplates'", name))
 			}
-			template.Templates = append(template.Templates, templates...)
+			template.Components = append(template.Components, templates...)
 		}
 
-		manifestKeyValues := GetObjectKeysValues(map[string]struct{}{"manifest": {}}, attrs)
+		manifestKeys := map[string]struct{}{
+			"manifests": {},
+			"manifest":  {},
+		}
+		manifestKeyValues := GetObjectKeysValues(manifestKeys, attrs)
 		for _, manifestSyntax := range manifestKeyValues {
 			manifests, err := interpretManifest(attrs, manifestSyntax)
 			if err != nil {

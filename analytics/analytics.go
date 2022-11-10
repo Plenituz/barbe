@@ -1,7 +1,7 @@
 package analytics
 
 import (
-	"barbe/core"
+	"barbe/core/version"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -53,7 +53,7 @@ func QueueEvent(ctx context.Context, event AnalyticsEvent) {
 	event.DeviceId, _ = getDeviceID(gitRepoURL(ctx, "."))
 	event.Platform = runtime.GOARCH
 	event.OSName = runtime.GOOS
-	event.CliVersion = core.Version
+	event.CliVersion = version.Version
 	if event.EventProperties == nil {
 		event.EventProperties = make(map[string]interface{})
 	}

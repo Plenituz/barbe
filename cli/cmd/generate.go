@@ -5,6 +5,7 @@ import (
 	"barbe/cli/cmd/cliutils"
 	"barbe/cli/logger"
 	"barbe/core"
+	"barbe/core/fetcher"
 	"context"
 	"encoding/json"
 	"github.com/rs/zerolog/log"
@@ -50,8 +51,8 @@ var generateCmd = &cobra.Command{
 			},
 		})
 
-		err = cliutils.IterateDirectories(ctx, allFiles, func(files []core.FileDescription, ctx context.Context, maker *core.Maker) error {
-			container, err := maker.Make(ctx, files, core.MakeCommandGenerate)
+		err = cliutils.IterateDirectories(ctx, core.MakeCommandGenerate, allFiles, func(files []fetcher.FileDescription, ctx context.Context, maker *core.Maker) error {
+			container, err := maker.Make(ctx, files)
 			if err != nil {
 				log.Ctx(ctx).Fatal().Err(err).Msg("generation failed")
 			}

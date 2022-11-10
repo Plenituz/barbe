@@ -5,6 +5,7 @@ import (
 	"barbe/cli/cmd/cliutils"
 	"barbe/cli/logger"
 	"barbe/core"
+	"barbe/core/fetcher"
 	"context"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
@@ -47,8 +48,8 @@ var destroyCmd = &cobra.Command{
 			},
 		})
 
-		err = cliutils.IterateDirectories(ctx, allFiles, func(files []core.FileDescription, ctx context.Context, maker *core.Maker) error {
-			_, err = maker.Make(ctx, files, core.MakeCommandDestroy)
+		err = cliutils.IterateDirectories(ctx, core.MakeCommandDestroy, allFiles, func(files []fetcher.FileDescription, ctx context.Context, maker *core.Maker) error {
+			_, err = maker.Make(ctx, files)
 			if err != nil {
 				log.Ctx(ctx).Fatal().Err(err).Msg("generation failed")
 			}

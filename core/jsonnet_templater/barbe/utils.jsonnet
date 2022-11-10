@@ -1,4 +1,4 @@
-    local barbe = {
+local barbe = {
     regexFindAllSubmatch:: std.native("regexFindAllSubmatch"),
 
     flatten(arr)::
@@ -14,6 +14,20 @@
         ]),
 
     databags(arr):: { Databags: barbe.flatten(arr) },
+
+    pipelines(pipes)::
+        local selectedPipeline = std.extVar("barbe_selected_pipeline");
+        local selectedStep = std.extVar("barbe_selected_pipeline_step");
+        if selectedPipeline == "" then
+            {
+                Pipelines: [std.length(pipe) for pipe in pipes],
+            }
+         else
+            local step = pipes[std.parseInt(selectedPipeline)][std.parseInt(selectedStep)];
+            {
+                Pipelines: step(std.extVar("container")),
+            }
+        ,
 
     accumulateTokens(root, visitor)::
         local shouldKeep = visitor(root);

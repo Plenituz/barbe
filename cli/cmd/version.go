@@ -1,9 +1,9 @@
 package cmd
 
 import (
+	"barbe/core/version"
 	"fmt"
 	"github.com/spf13/cobra"
-	"barbe/core"
 )
 
 var versionCmd = &cobra.Command{
@@ -11,6 +11,6 @@ var versionCmd = &cobra.Command{
 	Short: "Print version",
 	Args:  cobra.NoArgs,
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Printf("barbe " + core.Version)
+		fmt.Printf("barbe " + version.Version)
 	},
 }

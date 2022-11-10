@@ -1,3 +1,3 @@
-package core
+package version
 
 const Version = "0.0.5"

@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/pkg/errors"
 	"golang.org/x/sync/errgroup"
+	"sync"
 )
 
 type StatePersister interface {
@@ -37,8 +38,6 @@ const (
 
 	StateActionSet    = "set"
 	StateActionDelete = "delete"
-
-	ErrNoStatePersister = "no state persister found"
 )
 
 func NewStatePersister(ctx context.Context, maker *Maker, name string, config SyntaxToken) (StatePersister, error) {
@@ -64,21 +63,24 @@ func NewStateHolder() *StateHolder {
 }
 
 type StateHandler struct {
-	Maker        *Maker
-	CurrentState *StateHolder
+	Maker *Maker
 
+	//currentState is private because of the mutex
+	currentState             *StateHolder
+	stateMutex               sync.RWMutex
 	alreadyCreatedPersisters map[string]struct{}
-	peristers                []StatePersister
+	persisters               []StatePersister
 }
 
 func NewStateHandler(maker *Maker) *StateHandler {
 	return &StateHandler{
 		Maker:                    maker,
+		stateMutex:               sync.RWMutex{},
 		alreadyCreatedPersisters: make(map[string]struct{}),
 	}
 }
 
-func (s *StateHandler) DatabagsChanged(ctx context.Context, container *ConfigContainer) error {
+func (s *StateHandler) HandleStateDatabags(ctx context.Context, container *ConfigContainer) error {
 	err := s.CreatePersisters(ctx, container)
 	if err != nil {
 		return err
@@ -89,12 +91,14 @@ func (s *StateHandler) DatabagsChanged(ctx context.Context, container *ConfigCon
 	}
 	container.DeleteDataBagsOfType(BarbeStateSetDatabagType)
 	container.DeleteDataBagsOfType(BarbeStateDeleteDatabagType)
-	if s.CurrentState == nil || s.CurrentState.States == nil {
+	s.stateMutex.RLock()
+	defer s.stateMutex.RUnlock()
+	if s.currentState == nil || s.currentState.States == nil {
 		return nil
 	}
 
 	container.DeleteDataBagsOfType(StateDatabagType)
-	for key, value := range s.CurrentState.States {
+	for key, value := range s.currentState.States {
 		token, err := DecodeValue(value)
 		if err != nil {
 			return errors.Wrap(err, "error decoding state value as syntax token")
@@ -134,12 +138,16 @@ func (s *StateHandler) CreatePersisters(ctx context.Context, container *ConfigCo
 }
 
 func (s *StateHandler) AddPersister(persister StatePersister) error {
-	s.peristers = append(s.peristers, persister)
+	s.persisters = append(s.persisters, persister)
 
-	if s.CurrentState != nil {
+	s.stateMutex.RLock()
+	if s.currentState != nil {
+		s.stateMutex.RUnlock()
 		return nil
 	}
-	newPersister := s.peristers[len(s.peristers)-1]
+	s.stateMutex.RUnlock()
+
+	newPersister := s.persisters[len(s.persisters)-1]
 	newState, err := newPersister.ReadState()
 	if err != nil {
 		return errors.Wrap(err, "error reading state from new persister")
@@ -147,20 +155,24 @@ func (s *StateHandler) AddPersister(persister StatePersister) error {
 	if newState == nil {
 		return nil
 	}
-	s.CurrentState = newState
+	s.stateMutex.Lock()
+	defer s.stateMutex.Unlock()
+	s.currentState = newState
 	return nil
 }
 
 func (s *StateHandler) Persist() error {
-	if s.CurrentState == nil {
+	s.stateMutex.RLock()
+	defer s.stateMutex.RUnlock()
+	if s.currentState == nil {
 		return nil
 	}
 	eg := errgroup.Group{}
 	eg.SetLimit(15)
-	for _, persister := range s.peristers {
-		persister := persister
+	for i := range s.persisters {
+		persister := s.persisters[i]
 		eg.Go(func() error {
-			return persister.StoreState(*s.CurrentState)
+			return persister.StoreState(*s.currentState)
 		})
 	}
 	return eg.Wait()
@@ -219,26 +231,31 @@ func (s *StateHandler) applySetAction(action StateAction) error {
 	if action.Key == nil {
 		return errors.New("key is required for set action")
 	}
-	if s.CurrentState == nil {
-		s.CurrentState = NewStateHolder()
+	s.stateMutex.Lock()
+	defer s.stateMutex.Unlock()
+	if s.currentState == nil {
+		s.currentState = NewStateHolder()
 	}
-	if s.CurrentState.States == nil {
-		s.CurrentState.States = make(map[string]any)
+	if s.currentState.States == nil {
+		s.currentState.States = make(map[string]any)
 	}
-	s.CurrentState.States[*action.Key] = action.SetValue
+	s.currentState.States[*action.Key] = action.SetValue
 	return nil
 }
 
 func (s *StateHandler) applyDeleteAction(action StateAction) error {
-	if s.CurrentState == nil {
-		return nil
-	}
 	if action.Key == nil {
 		return errors.New("key is required for delete action")
 	}
-	if s.CurrentState == nil || s.CurrentState.States == nil {
+	s.stateMutex.RLock()
+	if s.currentState == nil || s.currentState.States == nil {
+		s.stateMutex.RUnlock()
 		return nil
 	}
-	delete(s.CurrentState.States, *action.Key)
+	s.stateMutex.RUnlock()
+
+	s.stateMutex.Lock()
+	defer s.stateMutex.Unlock()
+	delete(s.currentState.States, *action.Key)
 	return nil
 }
