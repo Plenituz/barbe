@@ -6,6 +6,7 @@ import (
 	"barbe/core/buildkit_runner/buildkitd"
 	"barbe/core/buildkit_runner/socketprovider"
 	"barbe/core/chown_util"
+	"barbe/core/fetcher"
 	"barbe/core/state_display"
 	"bufio"
 	"context"
@@ -437,14 +438,14 @@ func executeRunner(ctx context.Context, executable runnerExecutable, container *
 	}
 	defer chown_util.TryRectifyRootFiles(ctx, exportedFiles)
 
-	readBackFiles := make([]core.FileDescription, 0, len(executable.ReadBackFiles))
+	readBackFiles := make([]fetcher.FileDescription, 0, len(executable.ReadBackFiles))
 	for _, file := range executable.ReadBackFiles {
 		fullPath := path.Join(outputDir, file)
 		content, err := os.ReadFile(fullPath)
 		if err != nil {
 			return errors.Wrap(err, "error reading back file '"+file+"'")
 		}
-		readBackFiles = append(readBackFiles, core.FileDescription{
+		readBackFiles = append(readBackFiles, fetcher.FileDescription{
 			Name:    fullPath,
 			Content: content,
 		})

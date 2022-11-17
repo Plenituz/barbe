@@ -1,10 +1,10 @@
 package simplifier_transform
 
 import (
+	"barbe/core"
 	"context"
 	"github.com/pkg/errors"
 	"reflect"
-	"barbe/core"
 )
 
 type SimplifierTransformer struct{}
@@ -17,7 +17,7 @@ func (t SimplifierTransformer) Transform(ctx context.Context, data *core.ConfigC
 	for resourceType, m := range data.DataBags {
 		for name, group := range m {
 			for i, databag := range group {
-				err := simplifyLoop(ctx, databag)
+				databag, err := simplifyLoop(ctx, databag)
 				if err != nil {
 					return errors.Wrapf(err, "error simplifying databag '%s.%s'", resourceType, name)
 				}
@@ -28,21 +28,21 @@ func (t SimplifierTransformer) Transform(ctx context.Context, data *core.ConfigC
 	return nil
 }
 
-func simplifyLoop(ctx context.Context, databag *core.DataBag) error {
+func simplifyLoop(ctx context.Context, databag core.DataBag) (core.DataBag, error) {
 	for {
 		count := 0
 		simplified, err := visit(ctx, core.TokenPtr(databag.Value), func() {
 			count++
 		})
 		if err != nil {
-			return err
+			return core.DataBag{}, err
 		}
 		databag.Value = *simplified
 		if count == 0 {
 			break
 		}
 	}
-	return nil
+	return databag, nil
 }
 
 func visit(ctx context.Context, token *core.SyntaxToken, counter func()) (*core.SyntaxToken, error) {

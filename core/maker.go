@@ -154,7 +154,7 @@ func (maker *Maker) PreTransform(ctx context.Context, container *ConfigContainer
 
 func (maker *Maker) Transform(ctx context.Context, container *ConfigContainer) error {
 	for _, transformer := range maker.Transformers {
-		log.Ctx(ctx).Debug().Msgf("applying transformer '%s'", transformer.Name())
+		//log.Ctx(ctx).Debug().Msgf("applying transformer '%s'", transformer.Name())
 		t := time.Now()
 		err := transformer.Transform(ctx, container)
 		log.Ctx(ctx).Debug().Msgf("transformer '%s' took: %s", transformer.Name(), time.Since(t))

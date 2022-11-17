@@ -31,7 +31,7 @@ func mapTraversals(ctx context.Context, data *core.ConfigContainer) error {
 		}
 		for name, group := range m {
 			for i, databag := range group {
-				err := mapperLoop(ctx, databag, transformMap)
+				databag, err := mapperLoop(ctx, databag, transformMap)
 				if err != nil {
 					return errors.Wrapf(err, "error applying traversal_map to databag '%s[%d]'", name, i)
 				}
@@ -42,21 +42,21 @@ func mapTraversals(ctx context.Context, data *core.ConfigContainer) error {
 	return nil
 }
 
-func mapperLoop(ctx context.Context, databag *core.DataBag, transformMap map[string]core.SyntaxToken) error {
+func mapperLoop(ctx context.Context, databag core.DataBag, transformMap map[string]core.SyntaxToken) (core.DataBag, error) {
 	for i := 0; i < 100; i++ {
 		count := 0
 		transformed, err := visitMappers(ctx, core.TokenPtr(databag.Value), transformMap, func() {
 			count++
 		})
 		if err != nil {
-			return err
+			return core.DataBag{}, err
 		}
 		databag.Value = *transformed
 		if count == 0 {
 			break
 		}
 	}
-	return nil
+	return databag, nil
 }
 
 func visitMappers(ctx context.Context, root *core.SyntaxToken, transformMap map[string]core.SyntaxToken, counter func()) (*core.SyntaxToken, error) {

@@ -77,6 +77,7 @@ func (maker *Maker) ApplyComponents(ctx context.Context, executable Executable, 
 }
 
 func (maker *Maker) ApplyComponent(ctx context.Context, file fetcher.FileDescription, input ConfigContainer) (ConfigContainer, error) {
+	log.Ctx(ctx).Debug().Msg("applying component '" + file.Name + "'")
 	output := NewConfigContainer()
 	for _, engine := range maker.Templaters {
 		log.Ctx(ctx).Debug().Msg("applying template engine: '" + engine.Name() + "'")

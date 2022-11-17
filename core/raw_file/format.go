@@ -33,7 +33,7 @@ func (t RawFileFormatter) Format(ctx context.Context, data *core.ConfigContainer
 	return nil
 }
 
-func applyRawFile(ctx context.Context, databag *core.DataBag) error {
+func applyRawFile(ctx context.Context, databag core.DataBag) error {
 	if databag.Value.Type != core.TokenTypeObjectConst {
 		return errors.New("raw_file databag's syntax token must be of type object")
 	}

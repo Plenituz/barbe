@@ -1,16 +1,17 @@
 package hcl_parser
 
 import (
+	"barbe/core"
+	"barbe/core/fetcher"
 	"context"
 	"fmt"
 	"github.com/google/uuid"
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/pkg/errors"
-	"barbe/core"
 )
 
-func parseFromTemplate(ctx context.Context, container *core.ConfigContainer, userGeneratedFile core.FileDescription) error {
+func parseFromTemplate(ctx context.Context, container *core.ConfigContainer, userGeneratedFile fetcher.FileDescription) error {
 	userGenerated, diags := hclsyntax.ParseConfig(userGeneratedFile.Content, userGeneratedFile.Name, hcl.Pos{Line: 1, Column: 1})
 	if diags.HasErrors() {
 		return diags

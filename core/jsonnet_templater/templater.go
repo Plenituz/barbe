@@ -31,20 +31,25 @@ type sugarBag struct {
 }
 
 type parsedPipelineResult struct {
-	Pipelines parsedContainer
+	Pipelines parsedPipelineItem
 }
 
-func createVm(ctx context.Context, container *core.ConfigContainer) (*jsonnet.VM, error) {
+type parsedPipelineItem struct {
+	Databags []sugarBag
+}
+
+func createVm(ctx context.Context, maker *core.Maker, input core.ConfigContainer) (*jsonnet.VM, error) {
 	env, err := envMap()
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to marshal env map")
 	}
 	vm := jsonnet.MakeVM()
-	err = populateContainerInVm(vm, container)
+	err = populateContainerInVm(vm, input)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to populate container in vm")
 	}
 	vm.ExtCode("barbe", Builtins)
+	vm.ExtVar("barbe_command", maker.Command)
 	vm.ExtVar("barbe_output_dir", ctx.Value("maker").(*core.Maker).OutputDir)
 	vm.ExtCode("env", env)
 	vm.ExtVar("barbe_selected_pipeline", "")
@@ -91,7 +96,7 @@ func createVm(ctx context.Context, container *core.ConfigContainer) (*jsonnet.VM
 	return vm, nil
 }
 
-func populateContainerInVm(vm *jsonnet.VM, container *core.ConfigContainer) error {
+func populateContainerInVm(vm *jsonnet.VM, container core.ConfigContainer) error {
 	ctxObjJson, err := json.Marshal(container.DataBags)
 	if err != nil {
 		return errors.Wrap(err, "failed to marshal context object")
@@ -100,8 +105,8 @@ func populateContainerInVm(vm *jsonnet.VM, container *core.ConfigContainer) erro
 	return nil
 }
 
-func executeJsonnet(ctx context.Context, container *core.ConfigContainer, templateFile fetcher.FileDescription) error {
-	vm, err := createVm(ctx, container)
+func executeJsonnet(ctx context.Context, maker *core.Maker, input core.ConfigContainer, output *core.ConfigContainer, templateFile fetcher.FileDescription) error {
+	vm, err := createVm(ctx, maker, input)
 	if err != nil {
 		return errors.Wrap(err, "failed to create vm")
 	}
@@ -114,27 +119,73 @@ func executeJsonnet(ctx context.Context, container *core.ConfigContainer, templa
 		return formatJsonnetError(ctx, templateFile.Name, err)
 	}
 
-	err = processExecutionResult(ctx, vm, container, node, jsonStr)
+	var c parsedContainer
+	err = json.Unmarshal([]byte(jsonStr), &c)
 	if err != nil {
-		return errors.Wrap(err, "error processing execution result")
+		return errors.Wrap(err, "failed to unmarshal jsonnet output")
+	}
+	err = insertDatabags(c.Databags, output)
+	if err != nil {
+		return errors.Wrap(err, "failed to insert databags")
+	}
+
+	err = maker.Transform(ctx, output)
+	if err != nil {
+		return errors.Wrap(err, "error transforming container in pipeline")
+	}
+
+	if len(c.Pipelines) > 0 {
+		for pipelineIndex, pipelineLength := range c.Pipelines {
+			for stepIndex := 0; stepIndex < pipelineLength; stepIndex++ {
+				stepInput := input.Clone()
+				err = stepInput.MergeWith(*output)
+				if err != nil {
+					return errors.Wrap(err, "failed to merge input with container")
+				}
+				log.Ctx(ctx).Debug().Msgf("executing '%s' pipeline[%d][%d] (%d keys in input)", maker.Command, pipelineIndex, stepIndex, len(stepInput.DataBags))
+				err = populateContainerInVm(vm, *stepInput)
+				if err != nil {
+					return errors.Wrap(err, "failed to populate container in vm")
+				}
+				vm.ExtVar("barbe_selected_pipeline", fmt.Sprintf("%d", pipelineIndex))
+				vm.ExtVar("barbe_selected_pipeline_step", fmt.Sprintf("%d", stepIndex))
+				jsonStr, err := vm.Evaluate(node)
+				if err != nil {
+					return formatJsonnetError(ctx, fmt.Sprintf("pipeline[%d][%d]", pipelineIndex, stepIndex), err)
+				}
+
+				var parsedResult parsedPipelineResult
+				err = json.Unmarshal([]byte(jsonStr), &parsedResult)
+				if err != nil {
+					return errors.Wrap(err, "failed to unmarshal jsonnet output")
+				}
+				log.Ctx(ctx).Debug().Msgf("'%s' pipeline[%d][%d] created %d keys", maker.Command, pipelineIndex, stepIndex, len(parsedResult.Pipelines.Databags))
+
+				newStuff := core.NewConfigContainer()
+				err = insertDatabags(parsedResult.Pipelines.Databags, newStuff)
+				if err != nil {
+					return errors.Wrap(err, "failed to insert databags")
+				}
+
+				err = maker.Transform(ctx, newStuff)
+				if err != nil {
+					return errors.Wrap(err, "error transforming container in pipeline")
+				}
+				err = output.MergeWith(*newStuff)
+				if err != nil {
+					return errors.Wrap(err, "failed to merge container with output")
+				}
+			}
+		}
 	}
 	return nil
 }
 
-func processExecutionResult(ctx context.Context, vm *jsonnet.VM, container *core.ConfigContainer, template ast.Node, jsonStrOrParsed interface{}) error {
-	var c parsedContainer
-	if jsonStr, ok := jsonStrOrParsed.(string); ok {
-		err := json.Unmarshal([]byte(jsonStr), &c)
-		if err != nil {
-			return errors.Wrap(err, "failed to unmarshal jsonnet output")
+func insertDatabags(newBags []sugarBag, output *core.ConfigContainer) error {
+	for _, v := range newBags {
+		if v.Name == "" && v.Type == "" {
+			continue
 		}
-	} else if parsed, ok := jsonStrOrParsed.(parsedContainer); ok {
-		c = parsed
-	} else {
-		return errors.New("unexpected jsonnet output type: " + fmt.Sprintf("%T", jsonStrOrParsed))
-	}
-
-	for _, v := range c.Databags {
 		token, err := core.DecodeValue(v.Value)
 		if err != nil {
 			return errors.Wrap(err, "error decoding syntax token from jsonnet template")
@@ -149,50 +200,9 @@ func processExecutionResult(ctx context.Context, vm *jsonnet.VM, container *core
 			Labels: v.Labels,
 			Value:  token,
 		}
-		err = container.Insert(bag)
+		err = output.Insert(bag)
 		if err != nil {
 			return errors.Wrap(err, "error merging databag on jsonnet template")
-		}
-	}
-	if len(c.Pipelines) > 0 {
-		err := runPipelines(ctx, vm, container, c.Pipelines, template)
-		if err != nil {
-			return errors.Wrap(err, "error running pipelines")
-		}
-	}
-	return nil
-}
-
-func runPipelines(ctx context.Context, vm *jsonnet.VM, container *core.ConfigContainer, pipelines []int, template ast.Node) error {
-	maker := ctx.Value("maker").(*core.Maker)
-	for pipelineIndex, pipelineLength := range pipelines {
-		for stepIndex := 0; stepIndex < pipelineLength; stepIndex++ {
-			err := populateContainerInVm(vm, container)
-			if err != nil {
-				return errors.Wrap(err, "failed to populate container in vm")
-			}
-			vm.ExtVar("barbe_selected_pipeline", fmt.Sprintf("%d", pipelineIndex))
-			vm.ExtVar("barbe_selected_pipeline_step", fmt.Sprintf("%d", stepIndex))
-			jsonStr, err := vm.Evaluate(template)
-			if err != nil {
-				return formatJsonnetError(ctx, fmt.Sprintf("pipeline[%d][%d]", pipelineIndex, stepIndex), err)
-			}
-
-			var parsedResult parsedPipelineResult
-			err = json.Unmarshal([]byte(jsonStr), &parsedResult)
-			if err != nil {
-				return errors.Wrap(err, "failed to unmarshal jsonnet output")
-			}
-
-			err = processExecutionResult(ctx, vm, container, template, parsedResult.Pipelines)
-			if err != nil {
-				return errors.Wrap(err, "error processing execution result")
-			}
-
-			err = maker.Transform(ctx, container, fmt.Sprintf("pipeline[%d][%d]", pipelineIndex, stepIndex))
-			if err != nil {
-				return errors.Wrap(err, "error transforming container in pipeline")
-			}
 		}
 	}
 	return nil

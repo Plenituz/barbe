@@ -16,14 +16,27 @@ local barbe = {
     databags(arr):: { Databags: barbe.flatten(arr) },
 
     pipelines(pipes)::
+        local command = std.extVar("barbe_command");
         local selectedPipeline = std.extVar("barbe_selected_pipeline");
         local selectedStep = std.extVar("barbe_selected_pipeline_step");
         if selectedPipeline == "" then
             {
-                Pipelines: [std.length(pipe) for pipe in pipes],
+                Pipelines: [
+                    if std.objectHas(pipe, command) then
+                        std.length(pipe[command])
+                    else
+                        0
+                    for pipe in pipes
+                ],
             }
          else
-            local step = pipes[std.parseInt(selectedPipeline)][std.parseInt(selectedStep)];
+            local pipe = pipes[std.parseInt(selectedPipeline)];
+            local step =
+                if std.objectHas(pipe, command) then
+                    pipe[command][std.parseInt(selectedStep)]
+                else
+                    function(_) barbe.databags([])
+                ;
             {
                 Pipelines: step(std.extVar("container")),
             }

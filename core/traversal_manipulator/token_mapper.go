@@ -42,7 +42,7 @@ func mapTokens(ctx context.Context, data *core.ConfigContainer) error {
 		}
 		for name, group := range m {
 			for i, databag := range group {
-				err := tokenMapperLoop(ctx, databag, transformMaps)
+				databag, err := tokenMapperLoop(ctx, databag, transformMaps)
 				if err != nil {
 					return errors.Wrapf(err, "error applying token_map to databag '%s[%d]'", name, i)
 				}
@@ -80,21 +80,21 @@ func parseMatchObj(ctx context.Context, token core.SyntaxToken) (tokenMap, error
 	return result, nil
 }
 
-func tokenMapperLoop(ctx context.Context, databag *core.DataBag, transformMaps []tokenMap) error {
+func tokenMapperLoop(ctx context.Context, databag core.DataBag, transformMaps []tokenMap) (core.DataBag, error) {
 	for i := 0; i < 100; i++ {
 		count := 0
 		transformed, err := visitTokenMappers(ctx, core.TokenPtr(databag.Value), transformMaps, func() {
 			count++
 		})
 		if err != nil {
-			return err
+			return core.DataBag{}, err
 		}
 		databag.Value = *transformed
 		if count == 0 {
 			break
 		}
 	}
-	return nil
+	return databag, nil
 }
 
 func visitTokenMappers(ctx context.Context, root *core.SyntaxToken, transformMap []tokenMap, counter func()) (*core.SyntaxToken, error) {

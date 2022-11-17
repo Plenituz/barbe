@@ -144,38 +144,32 @@ func (maker *Maker) fetchManifest(ctx context.Context, manifestUrl string) (Mani
 
 	files := container.GetDataBagGroup("files", "")
 	for i, file := range files {
-		str, err := ExtractAsStringValue(file.Value)
+		str, err := interpretAsStrArray(file.Value)
 		if err != nil {
 			log.Ctx(ctx).Warn().Err(err).Msgf("error extracting 'files[%d]' from manifest", i)
 			continue
 		}
-		if str != "" {
-			manifest.Files = append(manifest.Files, str)
-		}
+		manifest.Files = append(manifest.Files, str...)
 	}
 
 	components := container.GetDataBagGroup("components", "")
 	for i, component := range components {
-		str, err := ExtractAsStringValue(component.Value)
+		str, err := interpretAsStrArray(component.Value)
 		if err != nil {
 			log.Ctx(ctx).Warn().Err(err).Msgf("error extracting 'components[%d]' from manifest", i)
 			continue
 		}
-		if str != "" {
-			manifest.Components = append(manifest.Components, str)
-		}
+		manifest.Components = append(manifest.Components, str...)
 	}
 
 	manifests := container.GetDataBagGroup("manifests", "")
 	for i, m := range manifests {
-		str, err := ExtractAsStringValue(m.Value)
+		str, err := interpretAsStrArray(m.Value)
 		if err != nil {
 			log.Ctx(ctx).Warn().Err(err).Msgf("error extracting 'manifests[%d]' from manifest", i)
 			continue
 		}
-		if str != "" {
-			manifest.Manifests = append(manifest.Components, str)
-		}
+		manifest.Manifests = append(manifest.Components, str...)
 	}
 	return manifest, nil
 }

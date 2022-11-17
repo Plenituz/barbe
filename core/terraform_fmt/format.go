@@ -23,7 +23,7 @@ func (t TerraformFormatter) Name() string {
 }
 
 func (t TerraformFormatter) Format(ctx context.Context, data *core.ConfigContainer) error {
-	cloudResourcesPerDir := map[string][]*core.DataBag{
+	cloudResourcesPerDir := map[string][]core.DataBag{
 		"": {},
 	}
 	hasAnything := false
@@ -40,7 +40,7 @@ func (t TerraformFormatter) Format(ctx context.Context, data *core.ConfigContain
 				hasAnything = true
 				if subdir := core.GetMeta[string](databag.Value, TerraformSubdirMetaKey); subdir != "" {
 					if _, ok := cloudResourcesPerDir[subdir]; !ok {
-						cloudResourcesPerDir[subdir] = []*core.DataBag{}
+						cloudResourcesPerDir[subdir] = []core.DataBag{}
 					}
 					cloudResourcesPerDir[subdir] = append(cloudResourcesPerDir[subdir], databag)
 				} else {
@@ -63,7 +63,7 @@ func (t TerraformFormatter) Format(ctx context.Context, data *core.ConfigContain
 	return nil
 }
 
-func writeTerraform(ctx context.Context, subdir string, bags []*core.DataBag) error {
+func writeTerraform(ctx context.Context, subdir string, bags []core.DataBag) error {
 	f := hclwrite.NewEmptyFile()
 	rootBody := f.Body()
 	for _, databag := range bags {
@@ -131,7 +131,7 @@ func writeTerraform(ctx context.Context, subdir string, bags []*core.DataBag) er
 	return nil
 }
 
-func populateBlock(block *hclwrite.Block, databag *core.DataBag) error {
+func populateBlock(block *hclwrite.Block, databag core.DataBag) error {
 	val, err := syntaxTokenToHclTokens(databag.Value, nil)
 	if err != nil {
 		return err

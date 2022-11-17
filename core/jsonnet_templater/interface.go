@@ -20,7 +20,7 @@ func (h JsonnetTemplater) Apply(ctx context.Context, maker *core.Maker, input co
 		return *c, nil
 	}
 	output := core.NewConfigContainer()
-	err := executeJsonnet(ctx, output, template)
+	err := executeJsonnet(ctx, maker, input, output, template)
 	if err != nil {
 		return core.ConfigContainer{}, err
 	}

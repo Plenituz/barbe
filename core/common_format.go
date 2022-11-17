@@ -331,6 +331,12 @@ func (c *ConfigContainer) MergeWith(other ConfigContainer) error {
 	for dataType, dataBags := range other.DataBags {
 		for dataName, dataBagGroup := range dataBags {
 			var err error
+			if _, ok := c.DataBags[dataType]; !ok {
+				c.DataBags[dataType] = make(map[string]DataBagGroup)
+			}
+			if _, ok := c.DataBags[dataType][dataName]; !ok {
+				c.DataBags[dataType][dataName] = make(DataBagGroup, 0, 1)
+			}
 			c.DataBags[dataType][dataName], err = c.GetDataBagGroup(dataType, dataName).MergeWith(dataBagGroup)
 			if err != nil {
 				return err
