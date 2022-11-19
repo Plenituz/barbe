@@ -10,6 +10,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -24,19 +25,24 @@ type FileDescription struct {
 
 //Fetches urls and cache their contents, will eventually also handle auth
 type Fetcher struct {
+	mutex     *sync.RWMutex
 	fileCache map[string]FileDescription
 }
 
 func NewFetcher() *Fetcher {
 	return &Fetcher{
+		mutex:     &sync.RWMutex{},
 		fileCache: map[string]FileDescription{},
 	}
 }
 
 func (fetcher *Fetcher) Fetch(url string) (FileDescription, error) {
+	fetcher.mutex.RLock()
 	if cached, ok := fetcher.fileCache[url]; ok {
+		fetcher.mutex.RUnlock()
 		return cached, nil
 	}
+	fetcher.mutex.RUnlock()
 	content, err := FetchFile(url)
 	if err != nil {
 		return FileDescription{}, errors.Wrap(err, "error fetching file at '"+url+"'")
@@ -45,6 +51,8 @@ func (fetcher *Fetcher) Fetch(url string) (FileDescription, error) {
 		Name:    url,
 		Content: content,
 	}
+	fetcher.mutex.Lock()
+	defer fetcher.mutex.Unlock()
 	fetcher.fileCache[url] = file
 	return file, nil
 }

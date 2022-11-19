@@ -25,16 +25,15 @@ type Maker struct {
 	Templaters      []TemplateEngine
 	Transformers    []Transformer
 	Formatters      []Formatter
-	Appliers        []Applier
 
+	Fetcher      *fetcher.Fetcher
 	stateHandler *StateHandler
-	fetcher      *fetcher.Fetcher
 }
 
 func NewMaker(command MakeCommand) *Maker {
 	maker := &Maker{
 		Command: command,
-		fetcher: fetcher.NewFetcher(),
+		Fetcher: fetcher.NewFetcher(),
 	}
 	stateHandler := NewStateHandler(maker)
 	//we always add a memory persister in case some templates rely on the state "API" to pass values between steps
@@ -155,26 +154,9 @@ func (maker *Maker) PreTransform(ctx context.Context, container *ConfigContainer
 func (maker *Maker) Transform(ctx context.Context, container *ConfigContainer) error {
 	for _, transformer := range maker.Transformers {
 		//log.Ctx(ctx).Debug().Msgf("applying transformer '%s'", transformer.Name())
-		t := time.Now()
+		//t := time.Now()
 		err := transformer.Transform(ctx, container)
-		log.Ctx(ctx).Debug().Msgf("transformer '%s' took: %s", transformer.Name(), time.Since(t))
-		if err != nil {
-			return err
-		}
-	}
-	err := maker.stateHandler.HandleStateDatabags(ctx, container)
-	if err != nil {
-		return errors.Wrap(err, "error creating persisters")
-	}
-	return nil
-}
-
-func (maker *Maker) Apply(ctx context.Context, container *ConfigContainer, displayName string) error {
-	for _, applier := range maker.Appliers {
-		state_display.StartMinorStep(displayName, applier.Name())
-		log.Ctx(ctx).Debug().Msgf("applying %s", applier.Name())
-		err := applier.Apply(ctx, container)
-		state_display.EndMinorStep(displayName, applier.Name())
+		//log.Ctx(ctx).Debug().Msgf("transformer '%s' took: %s", transformer.Name(), time.Since(t))
 		if err != nil {
 			return err
 		}

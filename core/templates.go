@@ -59,21 +59,21 @@ func (maker *Maker) GetTemplates(ctx context.Context, container *ConfigContainer
 		}
 	}
 
-	//prefetch everything in parallel, it'll be in the fetcher's cache
+	//prefetch everything in parallel, it'll be in the Fetcher's cache
 	fetcherGroup := errgroup.Group{}
 	fetcherGroup.SetLimit(10)
 	for _, manifest := range manifests {
 		for i := range manifest.Files {
 			link := manifest.Files[i]
 			fetcherGroup.Go(func() error {
-				_, err := maker.fetcher.Fetch(link)
+				_, err := maker.Fetcher.Fetch(link)
 				return err
 			})
 		}
 		for i := range manifest.Components {
 			link := manifest.Components[i]
 			fetcherGroup.Go(func() error {
-				_, err := maker.fetcher.Fetch(link)
+				_, err := maker.Fetcher.Fetch(link)
 				return err
 			})
 		}
@@ -97,14 +97,14 @@ func (maker *Maker) GetTemplates(ctx context.Context, container *ConfigContainer
 			executable.Message += manifest.Message
 		}
 		for _, file := range manifest.Files {
-			fileDesc, err := maker.fetcher.Fetch(file)
+			fileDesc, err := maker.Fetcher.Fetch(file)
 			if err != nil {
 				return Executable{}, errors.Wrap(err, "error fetching file")
 			}
 			executable.Files = append(executable.Files, fileDesc)
 		}
 		for _, component := range manifest.Components {
-			componentDesc, err := maker.fetcher.Fetch(component)
+			componentDesc, err := maker.Fetcher.Fetch(component)
 			if err != nil {
 				return Executable{}, errors.Wrap(err, "error fetching component")
 			}
@@ -115,7 +115,7 @@ func (maker *Maker) GetTemplates(ctx context.Context, container *ConfigContainer
 }
 
 func (maker *Maker) fetchManifest(ctx context.Context, manifestUrl string) (Manifest, error) {
-	manifestFile, err := maker.fetcher.Fetch(manifestUrl)
+	manifestFile, err := maker.Fetcher.Fetch(manifestUrl)
 	if err != nil {
 		return Manifest{}, errors.Wrap(err, "error fetching manifest")
 	}

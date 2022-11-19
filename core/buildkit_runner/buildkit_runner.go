@@ -7,7 +7,6 @@ import (
 	"barbe/core/buildkit_runner/socketprovider"
 	"barbe/core/chown_util"
 	"barbe/core/fetcher"
-	"barbe/core/state_display"
 	"bufio"
 	"context"
 	"fmt"
@@ -29,24 +28,34 @@ import (
 	"sync"
 )
 
-type BuildkitRunner struct{}
+const bagName = "buildkit_run_in_container"
 
-func (t BuildkitRunner) Name() string {
+type BuildkitRunner struct {
+	alreadyExecuted map[string]struct{}
+}
+
+func NewBuildkitRunner() *BuildkitRunner {
+	return &BuildkitRunner{
+		alreadyExecuted: make(map[string]struct{}),
+	}
+}
+
+func (t *BuildkitRunner) Name() string {
 	return "buildkit_runner"
 }
 
-func (t BuildkitRunner) Transform(ctx context.Context, data *core.ConfigContainer) error {
-	return run(ctx, data, "buildkit_run_in_container")
+func (t *BuildkitRunner) Transform(ctx context.Context, data *core.ConfigContainer) error {
+	return t.run(ctx, data)
 }
 
-func (t BuildkitRunner) Apply(ctx context.Context, data *core.ConfigContainer) error {
-	return run(ctx, data, "buildkit_run_in_container")
+func (t *BuildkitRunner) Apply(ctx context.Context, data *core.ConfigContainer) error {
+	return t.run(ctx, data)
 }
 
-func run(ctx context.Context, data *core.ConfigContainer, databagType string) error {
+func (t *BuildkitRunner) run(ctx context.Context, data *core.ConfigContainer) error {
 	executables := make([]runnerExecutable, 0)
 	for resourceType, m := range data.DataBags {
-		if resourceType != databagType {
+		if resourceType != bagName {
 			continue
 		}
 
@@ -55,10 +64,10 @@ func run(ctx context.Context, data *core.ConfigContainer, databagType string) er
 				if databag.Value.Type != core.TokenTypeObjectConst {
 					continue
 				}
-				executedToken := core.GetObjectKeyValues("executed", databag.Value.ObjectConst)
-				if len(executedToken) != 0 {
+				if _, ok := t.alreadyExecuted[databag.Name]; ok {
 					continue
 				}
+				t.alreadyExecuted[databag.Name] = struct{}{}
 
 				var err error
 				config, err := parseRunnerConfig(ctx, databag.Value.ObjectConst)
@@ -71,27 +80,6 @@ func run(ctx context.Context, data *core.ConfigContainer, databagType string) er
 				}
 				executable.Name = databag.Name
 				executables = append(executables, executable)
-
-				err = data.Insert(core.DataBag{
-					Name:   databag.Name,
-					Type:   databag.Type,
-					Labels: databag.Labels,
-					Value: core.SyntaxToken{
-						Type: core.TokenTypeObjectConst,
-						ObjectConst: []core.ObjectConstItem{
-							{
-								Key: "executed",
-								Value: core.SyntaxToken{
-									Type:  core.TokenTypeLiteralValue,
-									Value: true,
-								},
-							},
-						},
-					},
-				})
-				if err != nil {
-					return errors.Wrap(err, "error inserting buildkit_run_in_container")
-				}
 			}
 		}
 	}
@@ -370,7 +358,7 @@ func buildLlbDefinition(ctx context.Context, runnerConfig runnerConfig) (runnerE
 }
 
 func executeRunner(ctx context.Context, executable runnerExecutable, container *core.ConfigContainer) error {
-	state_display.AddLogLine(state_display.FindActiveMajorStepWithMinorStepNamed("buildkit_runner"), "buildkit_runner", executable.Name)
+	//state_display.AddLogLine(state_display.FindActiveMajorStepWithMinorStepNamed("buildkit_runner"), "buildkit_runner", executable.Name)
 	maker := ctx.Value("maker").(*core.Maker)
 	outputDir := maker.OutputDir
 

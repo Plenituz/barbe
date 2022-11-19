@@ -142,7 +142,7 @@ func executeJsonnet(ctx context.Context, maker *core.Maker, input core.ConfigCon
 				if err != nil {
 					return errors.Wrap(err, "failed to merge input with container")
 				}
-				log.Ctx(ctx).Debug().Msgf("executing '%s' pipeline[%d][%d] (%d keys in input)", maker.Command, pipelineIndex, stepIndex, len(stepInput.DataBags))
+				log.Ctx(ctx).Debug().Msgf("executing '%s.%s' pipeline[%d][%d] (%d keys in input)", templateFile.Name, maker.Command, pipelineIndex, stepIndex, len(stepInput.DataBags))
 				err = populateContainerInVm(vm, *stepInput)
 				if err != nil {
 					return errors.Wrap(err, "failed to populate container in vm")
@@ -159,22 +159,18 @@ func executeJsonnet(ctx context.Context, maker *core.Maker, input core.ConfigCon
 				if err != nil {
 					return errors.Wrap(err, "failed to unmarshal jsonnet output")
 				}
-				log.Ctx(ctx).Debug().Msgf("'%s' pipeline[%d][%d] created %d keys", maker.Command, pipelineIndex, stepIndex, len(parsedResult.Pipelines.Databags))
+				log.Ctx(ctx).Debug().Msgf("'%s.%s' pipeline[%d][%d] created %d keys", templateFile.Name, maker.Command, pipelineIndex, stepIndex, len(parsedResult.Pipelines.Databags))
 
-				newStuff := core.NewConfigContainer()
-				err = insertDatabags(parsedResult.Pipelines.Databags, newStuff)
+				err = insertDatabags(parsedResult.Pipelines.Databags, output)
 				if err != nil {
 					return errors.Wrap(err, "failed to insert databags")
 				}
 
-				err = maker.Transform(ctx, newStuff)
+				err = maker.Transform(ctx, output)
 				if err != nil {
 					return errors.Wrap(err, "error transforming container in pipeline")
 				}
-				err = output.MergeWith(*newStuff)
-				if err != nil {
-					return errors.Wrap(err, "failed to merge container with output")
-				}
+
 			}
 		}
 	}

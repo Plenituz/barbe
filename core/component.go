@@ -6,8 +6,8 @@ import (
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/sync/errgroup"
+	"reflect"
 	"strings"
-	"time"
 )
 
 func (maker *Maker) ApplyComponents(ctx context.Context, executable Executable, container *ConfigContainer) error {
@@ -48,11 +48,18 @@ func (maker *Maker) ApplyComponents(ctx context.Context, executable Executable, 
 
 		//remove databags that are in componentInput and already in container, to avoid looping forever
 		for typeName, databags := range componentInput.DataBags {
+			if typeName == StateDatabagType {
+				continue
+			}
 			for databagName, databagGroup := range databags {
 				for _, databag := range databagGroup {
 					if container.Contains(databag) {
-						log.Ctx(ctx).Debug().Msgf("removing databag %s.%s.%s from component input, already in container", typeName, databagName, strings.Join(databag.Labels, "."))
-						componentInput.DeleteDataBag(typeName, databagName, databag.Labels)
+						for _, existingBag := range container.GetDataBagGroup(typeName, databagName) {
+							if reflect.DeepEqual(existingBag, databag) {
+								log.Ctx(ctx).Debug().Msgf("removing databag %s.%s.%s from component input, already in container", typeName, databagName, strings.Join(databag.Labels, "."))
+								componentInput.DeleteDataBag(typeName, databagName, databag.Labels)
+							}
+						}
 					}
 				}
 			}
@@ -80,11 +87,11 @@ func (maker *Maker) ApplyComponent(ctx context.Context, file fetcher.FileDescrip
 	log.Ctx(ctx).Debug().Msg("applying component '" + file.Name + "'")
 	output := NewConfigContainer()
 	for _, engine := range maker.Templaters {
-		log.Ctx(ctx).Debug().Msg("applying template engine: '" + engine.Name() + "'")
-		t := time.Now()
+		//log.Ctx(ctx).Debug().Msg("applying template engine: '" + engine.Name() + "'")
+		//t := time.Now()
 
 		partialOutput, err := engine.Apply(ctx, maker, input, file)
-		log.Ctx(ctx).Debug().Msgf("template engine '%s' took: %v", engine.Name(), time.Since(t))
+		//log.Ctx(ctx).Debug().Msgf("template engine '%s' took: %v", engine.Name(), time.Since(t))
 		if err != nil {
 			return ConfigContainer{}, errors.Wrap(err, "from template engine '"+engine.Name()+"'")
 		}
