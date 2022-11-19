@@ -8,6 +8,7 @@ import (
 	"barbe/core/fetcher"
 	"barbe/core/gcp_token_provider"
 	"barbe/core/hcl_parser"
+	"barbe/core/import_component"
 	"barbe/core/json_parser"
 	"barbe/core/jsonnet_templater"
 	"barbe/core/raw_file"
@@ -177,15 +178,13 @@ func makeMaker(command core.MakeCommand, dir string) *core.Maker {
 		traversal_manipulator.TraversalManipulator{},
 		aws_session_provider.AwsSessionProviderTransformer{},
 		gcp_token_provider.GcpTokenProviderTransformer{},
-		buildkit_runner.BuildkitRunner{},
+		buildkit_runner.NewBuildkitRunner(),
+		import_component.NewComponentImporter(),
 	}
 	maker.Formatters = []core.Formatter{
 		terraform_fmt.TerraformFormatter{},
 		zipper_fmt.ZipperFormatter{},
 		raw_file.RawFileFormatter{},
-	}
-	maker.Appliers = []core.Applier{
-		buildkit_runner.BuildkitRunner{},
 	}
 	return maker
 }
