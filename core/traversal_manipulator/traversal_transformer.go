@@ -9,8 +9,7 @@ import (
 	"strings"
 )
 
-func transformTraversals(ctx context.Context, data *core.ConfigContainer) error {
-	transformMap := map[string]string{}
+func (t *TraversalManipulator) transformTraversals(ctx context.Context, data core.ConfigContainer, output *core.ConfigContainer) error {
 	for resourceType, m := range data.DataBags {
 		if resourceType != "traversal_transform" {
 			continue
@@ -25,7 +24,7 @@ func transformTraversals(ctx context.Context, data *core.ConfigContainer) error 
 					if err != nil {
 						return errors.Wrap(err, "error extracting string value from traversal_transform value")
 					}
-					transformMap[pair.Key] = strValue
+					t.traversalTransforms[pair.Key] = strValue
 				}
 			}
 		}
@@ -36,33 +35,40 @@ func transformTraversals(ctx context.Context, data *core.ConfigContainer) error 
 			continue
 		}
 		for name, group := range m {
-			for i, databag := range group {
-				databag, err := transformerLoop(ctx, databag, transformMap)
+			for _, databag := range group {
+				changed, changedBag, err := transformerLoop(ctx, databag, t.traversalTransforms)
 				if err != nil {
 					return errors.Wrapf(err, "error applying traversal_transform to databag '%s'", name)
 				}
-				data.DataBags[resourceType][name][i] = databag
+				if !changed {
+					continue
+				}
+				err = output.Insert(changedBag)
+				if err != nil {
+					return errors.Wrapf(err, "error inserting transformed databag '%s'", name)
+				}
 			}
 		}
 	}
 	return nil
 }
 
-func transformerLoop(ctx context.Context, databag core.DataBag, transformMap map[string]string) (core.DataBag, error) {
+func transformerLoop(ctx context.Context, databag core.DataBag, transformMap map[string]string) (changed bool, changedBag core.DataBag, e error) {
 	for i := 0; i < 100; i++ {
-		count := 0
+		shouldStop := true
 		transformed, err := visitTransformers(ctx, core.TokenPtr(databag.Value), transformMap, func() {
-			count++
+			changed = true
+			shouldStop = false
 		})
 		if err != nil {
-			return core.DataBag{}, err
+			return false, core.DataBag{}, err
 		}
 		databag.Value = *transformed
-		if count == 0 {
+		if shouldStop {
 			break
 		}
 	}
-	return databag, nil
+	return changed, databag, nil
 }
 
 func visitTransformers(ctx context.Context, root *core.SyntaxToken, transformMap map[string]string, counter func()) (*core.SyntaxToken, error) {

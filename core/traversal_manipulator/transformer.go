@@ -5,26 +5,44 @@ import (
 	"context"
 )
 
-type TraversalManipulator struct{}
+type TraversalManipulator struct {
+	traversalTransforms map[string]string
+	traversalMaps       map[string]core.SyntaxToken
+	tokenMaps           []tokenMap
+}
 
-func (t TraversalManipulator) Name() string {
+type tokenMap struct {
+	Match     core.SyntaxToken
+	ReplaceBy core.SyntaxToken
+}
+
+func NewTraversalManipulator() *TraversalManipulator {
+	return &TraversalManipulator{
+		traversalTransforms: map[string]string{},
+		traversalMaps:       map[string]core.SyntaxToken{},
+		tokenMaps:           []tokenMap{},
+	}
+}
+
+func (t *TraversalManipulator) Name() string {
 	return "traversal_manipulator"
 }
 
-func (t TraversalManipulator) Transform(ctx context.Context, data *core.ConfigContainer) error {
-	err := transformTraversals(ctx, data)
+func (t *TraversalManipulator) Transform(ctx context.Context, data core.ConfigContainer) (core.ConfigContainer, error) {
+	output := core.NewConfigContainer()
+	err := t.transformTraversals(ctx, data, output)
 	if err != nil {
-		return err
+		return core.ConfigContainer{}, err
 	}
 
-	err = mapTraversals(ctx, data)
+	err = t.mapTraversals(ctx, data, output)
 	if err != nil {
-		return err
+		return core.ConfigContainer{}, err
 	}
 
-	err = mapTokens(ctx, data)
+	err = t.mapTokens(ctx, data, output)
 	if err != nil {
-		return err
+		return core.ConfigContainer{}, err
 	}
-	return nil
+	return *output, nil
 }

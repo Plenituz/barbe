@@ -44,15 +44,7 @@ func (t *BuildkitRunner) Name() string {
 	return "buildkit_runner"
 }
 
-func (t *BuildkitRunner) Transform(ctx context.Context, data *core.ConfigContainer) error {
-	return t.run(ctx, data)
-}
-
-func (t *BuildkitRunner) Apply(ctx context.Context, data *core.ConfigContainer) error {
-	return t.run(ctx, data)
-}
-
-func (t *BuildkitRunner) run(ctx context.Context, data *core.ConfigContainer) error {
+func (t *BuildkitRunner) Transform(ctx context.Context, data core.ConfigContainer) (core.ConfigContainer, error) {
 	executables := make([]runnerExecutable, 0)
 	for resourceType, m := range data.DataBags {
 		if resourceType != bagName {
@@ -72,11 +64,11 @@ func (t *BuildkitRunner) run(ctx context.Context, data *core.ConfigContainer) er
 				var err error
 				config, err := parseRunnerConfig(ctx, databag.Value.ObjectConst)
 				if err != nil {
-					return errors.Wrap(err, "error compiling buildkit_run_in_container")
+					return core.ConfigContainer{}, errors.Wrap(err, "error compiling buildkit_run_in_container")
 				}
 				executable, err := buildLlbDefinition(ctx, config)
 				if err != nil {
-					return errors.Wrap(err, "error building llb definition")
+					return core.ConfigContainer{}, errors.Wrap(err, "error building llb definition")
 				}
 				executable.Name = databag.Name
 				executables = append(executables, executable)
@@ -84,21 +76,23 @@ func (t *BuildkitRunner) run(ctx context.Context, data *core.ConfigContainer) er
 		}
 	}
 	if len(executables) == 0 {
-		return nil
+		tmp := core.NewConfigContainer()
+		return *tmp, nil
 	}
 
 	eg := errgroup.Group{}
+	output := core.NewConcurrentConfigContainer()
 	for _, executable := range executables {
 		e := executable
 		eg.Go(func() error {
-			return executeRunner(ctx, e, data)
+			return executeRunner(ctx, e, output)
 		})
 	}
 	err := eg.Wait()
 	if err != nil {
-		return errors.Wrap(err, "error executing buildkit_run_in_container")
+		return core.ConfigContainer{}, errors.Wrap(err, "error executing buildkit_run_in_container")
 	}
-	return nil
+	return *output.Container(), nil
 }
 
 type runnerConfig struct {
@@ -357,7 +351,7 @@ func buildLlbDefinition(ctx context.Context, runnerConfig runnerConfig) (runnerE
 	return executable, nil
 }
 
-func executeRunner(ctx context.Context, executable runnerExecutable, container *core.ConfigContainer) error {
+func executeRunner(ctx context.Context, executable runnerExecutable, output *core.ConcurrentConfigContainer) error {
 	//state_display.AddLogLine(state_display.FindActiveMajorStepWithMinorStepNamed("buildkit_runner"), "buildkit_runner", executable.Name)
 	maker := ctx.Value("maker").(*core.Maker)
 	outputDir := maker.OutputDir
@@ -438,11 +432,16 @@ func executeRunner(ctx context.Context, executable runnerExecutable, container *
 			Content: content,
 		})
 	}
-	err = maker.ParseFiles(ctx, readBackFiles, container)
+
+	tmp := core.NewConfigContainer()
+	err = maker.ParseFiles(ctx, readBackFiles, tmp)
 	if err != nil {
 		return errors.Wrap(err, "error parsing read back files")
 	}
-
+	err = output.MergeWith(*tmp)
+	if err != nil {
+		return errors.Wrap(err, "error merging read back files")
+	}
 	return nil
 }
 

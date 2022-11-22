@@ -141,8 +141,8 @@ func (t SyntaxToken) MergeWith(other SyntaxToken) (SyntaxToken, error) {
 	switch t.Type {
 	default:
 		return other, nil
-	case TokenTypeArrayConst:
-		t.ArrayConst = append(t.ArrayConst, other.ArrayConst...)
+	//case TokenTypeArrayConst:
+	//	t.ArrayConst = append(t.ArrayConst, other.ArrayConst...)
 	case TokenTypeObjectConst:
 		existingValues := map[string]int{}
 		for i, o := range t.ObjectConst {
@@ -385,22 +385,18 @@ type Parser interface {
 
 type TemplateEngine interface {
 	Name() string
+	//Apply cannot edit the input container, it must return a new one with the changes
 	Apply(ctx context.Context, maker *Maker, input ConfigContainer, template fetcher.FileDescription) (ConfigContainer, error)
 }
 
 type Transformer interface {
 	Name() string
-	//Transform should really be idempotent
-	Transform(ctx context.Context, container *ConfigContainer) error
+	//Transform cannot edit the input container, it must return a new one with the changes
+	Transform(ctx context.Context, container ConfigContainer) (ConfigContainer, error)
 }
 
 type Formatter interface {
 	Name() string
 	// Format formats the data from the parsed data in common format
-	Format(ctx context.Context, container *ConfigContainer) error
-}
-
-type Applier interface {
-	Name() string
-	Apply(ctx context.Context, container *ConfigContainer) error
+	Format(ctx context.Context, container ConfigContainer) error
 }

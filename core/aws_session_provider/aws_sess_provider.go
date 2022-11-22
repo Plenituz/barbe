@@ -16,7 +16,8 @@ func (t AwsSessionProviderTransformer) Name() string {
 	return "aws_session_provider"
 }
 
-func (t AwsSessionProviderTransformer) Transform(ctx context.Context, data *core.ConfigContainer) error {
+func (t AwsSessionProviderTransformer) Transform(ctx context.Context, data core.ConfigContainer) (core.ConfigContainer, error) {
+	output := core.NewConfigContainer()
 	for resourceType, m := range data.DataBags {
 		if resourceType != "aws_credentials_request" {
 			continue
@@ -32,17 +33,17 @@ func (t AwsSessionProviderTransformer) Transform(ctx context.Context, data *core
 				}
 				newBag, err := populateAwsSession(ctx, databag)
 				if err != nil {
-					return errors.Wrap(err, "error populating aws session")
+					return core.ConfigContainer{}, errors.Wrap(err, "error populating aws session")
 				}
-				err = data.Insert(newBag)
+				err = output.Insert(newBag)
 				if err != nil {
-					return errors.Wrap(err, "error inserting aws credentials")
+					return core.ConfigContainer{}, errors.Wrap(err, "error inserting aws credentials")
 				}
 			}
 		}
 	}
 
-	return nil
+	return *output, nil
 }
 
 func populateAwsSession(ctx context.Context, dataBag core.DataBag) (core.DataBag, error) {

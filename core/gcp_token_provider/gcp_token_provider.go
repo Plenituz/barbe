@@ -19,7 +19,8 @@ func (t GcpTokenProviderTransformer) Name() string {
 	return "gcp_token_provider"
 }
 
-func (t GcpTokenProviderTransformer) Transform(ctx context.Context, data *core.ConfigContainer) error {
+func (t GcpTokenProviderTransformer) Transform(ctx context.Context, data core.ConfigContainer) (core.ConfigContainer, error) {
+	output := core.NewConfigContainer()
 	for resourceType, m := range data.DataBags {
 		if resourceType != "gcp_token_request" {
 			continue
@@ -35,16 +36,16 @@ func (t GcpTokenProviderTransformer) Transform(ctx context.Context, data *core.C
 				}
 				newBag, err := populateGcpToken(ctx, databag)
 				if err != nil {
-					return errors.Wrap(err, "error populating aws session")
+					return core.ConfigContainer{}, errors.Wrap(err, "error populating aws session")
 				}
-				err = data.Insert(newBag)
+				err = output.Insert(newBag)
 				if err != nil {
-					return errors.Wrap(err, "error inserting aws credentials")
+					return core.ConfigContainer{}, errors.Wrap(err, "error inserting aws credentials")
 				}
 			}
 		}
 	}
-	return nil
+	return *output, nil
 }
 
 func populateGcpToken(ctx context.Context, dataBag core.DataBag) (core.DataBag, error) {

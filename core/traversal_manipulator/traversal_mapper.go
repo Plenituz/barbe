@@ -7,8 +7,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-func mapTraversals(ctx context.Context, data *core.ConfigContainer) error {
-	transformMap := map[string]core.SyntaxToken{}
+func (t *TraversalManipulator) mapTraversals(ctx context.Context, data core.ConfigContainer, output *core.ConfigContainer) error {
 	for resourceType, m := range data.DataBags {
 		if resourceType != "traversal_map" {
 			continue
@@ -19,7 +18,7 @@ func mapTraversals(ctx context.Context, data *core.ConfigContainer) error {
 					return fmt.Errorf("traversal_map databag '%s[%d]' is not an object", name, i)
 				}
 				for _, pair := range databag.Value.ObjectConst {
-					transformMap[pair.Key] = pair.Value
+					t.traversalMaps[pair.Key] = pair.Value
 				}
 			}
 		}
@@ -31,32 +30,39 @@ func mapTraversals(ctx context.Context, data *core.ConfigContainer) error {
 		}
 		for name, group := range m {
 			for i, databag := range group {
-				databag, err := mapperLoop(ctx, databag, transformMap)
+				changed, changedBag, err := mapperLoop(ctx, databag, t.traversalMaps)
 				if err != nil {
 					return errors.Wrapf(err, "error applying traversal_map to databag '%s[%d]'", name, i)
 				}
-				data.DataBags[resourceType][name][i] = databag
+				if !changed {
+					continue
+				}
+				err = output.Insert(changedBag)
+				if err != nil {
+					return errors.Wrapf(err, "error inserting databag '%s[%d]'", name, i)
+				}
 			}
 		}
 	}
 	return nil
 }
 
-func mapperLoop(ctx context.Context, databag core.DataBag, transformMap map[string]core.SyntaxToken) (core.DataBag, error) {
+func mapperLoop(ctx context.Context, databag core.DataBag, transformMap map[string]core.SyntaxToken) (changed bool, changedBag core.DataBag, e error) {
 	for i := 0; i < 100; i++ {
-		count := 0
+		shouldStop := true
 		transformed, err := visitMappers(ctx, core.TokenPtr(databag.Value), transformMap, func() {
-			count++
+			changed = true
+			shouldStop = false
 		})
 		if err != nil {
-			return core.DataBag{}, err
+			return false, core.DataBag{}, err
 		}
 		databag.Value = *transformed
-		if count == 0 {
+		if shouldStop {
 			break
 		}
 	}
-	return databag, nil
+	return changed, databag, nil
 }
 
 func visitMappers(ctx context.Context, root *core.SyntaxToken, transformMap map[string]core.SyntaxToken, counter func()) (*core.SyntaxToken, error) {

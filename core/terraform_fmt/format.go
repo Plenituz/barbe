@@ -22,7 +22,7 @@ func (t TerraformFormatter) Name() string {
 	return "terraform_fmt"
 }
 
-func (t TerraformFormatter) Format(ctx context.Context, data *core.ConfigContainer) error {
+func (t TerraformFormatter) Format(ctx context.Context, data core.ConfigContainer) error {
 	cloudResourcesPerDir := map[string][]core.DataBag{
 		"": {},
 	}

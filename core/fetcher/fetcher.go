@@ -25,8 +25,9 @@ type FileDescription struct {
 
 //Fetches urls and cache their contents, will eventually also handle auth
 type Fetcher struct {
-	mutex     *sync.RWMutex
-	fileCache map[string]FileDescription
+	mutex          *sync.RWMutex
+	fileCache      map[string]FileDescription
+	UrlTransformer func(string) string
 }
 
 func NewFetcher() *Fetcher {
@@ -37,6 +38,9 @@ func NewFetcher() *Fetcher {
 }
 
 func (fetcher *Fetcher) Fetch(url string) (FileDescription, error) {
+	if fetcher.UrlTransformer != nil {
+		url = fetcher.UrlTransformer(url)
+	}
 	fetcher.mutex.RLock()
 	if cached, ok := fetcher.fileCache[url]; ok {
 		fetcher.mutex.RUnlock()

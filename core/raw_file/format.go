@@ -15,7 +15,7 @@ func (t RawFileFormatter) Name() string {
 	return "raw_file"
 }
 
-func (t RawFileFormatter) Format(ctx context.Context, data *core.ConfigContainer) error {
+func (t RawFileFormatter) Format(ctx context.Context, data core.ConfigContainer) error {
 	for resourceType, m := range data.DataBags {
 		if resourceType != "raw_file" {
 			continue

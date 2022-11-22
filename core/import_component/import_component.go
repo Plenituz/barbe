@@ -23,15 +23,8 @@ func (t *ComponentImporter) Name() string {
 	return "component_importer"
 }
 
-func (t *ComponentImporter) Transform(ctx context.Context, data *core.ConfigContainer) error {
-	return t.run(ctx, data)
-}
-
-func (t *ComponentImporter) Apply(ctx context.Context, data *core.ConfigContainer) error {
-	return t.run(ctx, data)
-}
-
-func (t *ComponentImporter) run(ctx context.Context, data *core.ConfigContainer) error {
+func (t *ComponentImporter) Transform(ctx context.Context, data core.ConfigContainer) (core.ConfigContainer, error) {
+	output := core.NewConfigContainer()
 	maker := ctx.Value("maker").(*core.Maker)
 	for resourceType, m := range data.DataBags {
 		if resourceType != bagName {
@@ -57,28 +50,28 @@ func (t *ComponentImporter) run(ctx context.Context, data *core.ConfigContainer)
 				}
 				componentUrl, err := core.ExtractAsStringValue(componentUrlTokens[0])
 				if err != nil {
-					return errors.Wrap(err, "error extracting component url")
+					return core.ConfigContainer{}, errors.Wrap(err, "error extracting component url")
 				}
 
 				file, err := maker.Fetcher.Fetch(componentUrl)
 				if err != nil {
-					return errors.Wrap(err, "error fetching component")
+					return core.ConfigContainer{}, errors.Wrap(err, "error fetching component")
 				}
 
-				newBags, err := maker.ApplyComponent(ctx, file, *data)
+				newBags, err := maker.ApplyComponent(ctx, file, data)
 				if err != nil {
-					return errors.Wrap(err, "error applying component '"+componentUrl+"'")
+					return core.ConfigContainer{}, errors.Wrap(err, "error applying component '"+componentUrl+"'")
 				}
 				if newBags.IsEmpty() {
 					continue
 				}
-				err = data.MergeWith(newBags)
+				err = output.MergeWith(newBags)
 				if err != nil {
-					return errors.Wrap(err, "error merging databags")
+					return core.ConfigContainer{}, errors.Wrap(err, "error merging databags")
 				}
 			}
 		}
 	}
 
-	return nil
+	return *output, nil
 }

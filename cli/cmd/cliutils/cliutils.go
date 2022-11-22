@@ -17,9 +17,11 @@ import (
 	"barbe/core/traversal_manipulator"
 	"barbe/core/zipper_fmt"
 	"context"
+	"github.com/pkg/errors"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/viper"
 	"io/fs"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -65,6 +67,55 @@ func IterateDirectories(ctx context.Context, command core.MakeCommand, allFiles 
 			log.Ctx(ctx).Debug().Msg("with files: [" + strings.Join(fileNames, ", ") + "]")
 
 			maker := makeMaker(command, path.Join(viper.GetString("output"), dir))
+
+			if os.Getenv("BARBE_LOCAL") != "" {
+				localDirs := strings.Split(os.Getenv("BARBE_LOCAL"), ":")
+				maker.Fetcher.UrlTransformer = func(s string) string {
+					parsedUrl, err := url.Parse(s)
+					if err != nil {
+						log.Ctx(ctx).Warn().Err(err).Msg("failed to parse component name in url transformer")
+						return s
+					}
+					split := strings.Split(parsedUrl.Path, "/")
+					if len(split) < 2 {
+						log.Ctx(ctx).Warn().Err(err).Msg("failed to parse component name in url transformer")
+						return s
+					}
+					componentName := split[2]
+					ext := split[len(split)-1]
+					lookingFor := componentName + ext
+
+					foundErr := errors.New("found")
+					found := ""
+					for _, dir := range localDirs {
+						err = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+							if err != nil {
+								log.Ctx(ctx).Warn().Err(err).Msg("failed to walk dir in url transformer")
+								return nil
+							}
+							if d.Name() != lookingFor {
+								return nil
+							}
+							found = path
+							return foundErr
+						})
+						if err != nil && !errors.Is(err, foundErr) {
+							log.Ctx(ctx).Warn().Err(err).Msg("failed to walk dir in url transformer")
+							continue
+						}
+						if found != "" {
+							break
+						}
+					}
+
+					if found == "" {
+						log.Ctx(ctx).Warn().Err(err).Msg("failed to find local component in url transformer")
+						return s
+					}
+					return found
+				}
+			}
+
 			innerCtx := context.WithValue(ctx, "maker", maker)
 
 			err := os.MkdirAll(maker.OutputDir, 0755)
@@ -163,9 +214,6 @@ func makeMaker(command core.MakeCommand, dir string) *core.Maker {
 		hcl_parser.HclParser{},
 		json_parser.JsonParser{},
 	}
-	maker.PreTransformers = []core.Transformer{
-		simplifier_transform.SimplifierTransformer{},
-	}
 	maker.Templaters = []core.TemplateEngine{
 		//hcl_templater.HclTemplater{},
 		//cue_templater.CueTemplater{},
@@ -175,7 +223,7 @@ func makeMaker(command core.MakeCommand, dir string) *core.Maker {
 		//the simplifier being first is very important, it simplifies syntax that is equivalent
 		//to make it a lot easier for the transformers to work with
 		simplifier_transform.SimplifierTransformer{},
-		traversal_manipulator.TraversalManipulator{},
+		traversal_manipulator.NewTraversalManipulator(),
 		aws_session_provider.AwsSessionProviderTransformer{},
 		gcp_token_provider.GcpTokenProviderTransformer{},
 		buildkit_runner.NewBuildkitRunner(),

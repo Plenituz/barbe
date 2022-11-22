@@ -18,13 +18,12 @@ const (
 )
 
 type Maker struct {
-	Command         MakeCommand
-	OutputDir       string
-	Parsers         []Parser
-	PreTransformers []Transformer
-	Templaters      []TemplateEngine
-	Transformers    []Transformer
-	Formatters      []Formatter
+	Command      MakeCommand
+	OutputDir    string
+	Parsers      []Parser
+	Templaters   []TemplateEngine
+	Transformers []Transformer
+	Formatters   []Formatter
 
 	Fetcher      *fetcher.Fetcher
 	stateHandler *StateHandler
@@ -72,7 +71,7 @@ func (maker *Maker) Make(ctx context.Context, inputFiles []fetcher.FileDescripti
 	}
 
 	state_display.StartMajorStep("Pre-transform")
-	err = maker.PreTransform(ctx, container)
+	err = maker.TransformInPlace(ctx, container)
 	if err != nil {
 		return container, err
 	}
@@ -89,7 +88,7 @@ func (maker *Maker) Make(ctx context.Context, inputFiles []fetcher.FileDescripti
 	state_display.StartMajorStep("Formatters")
 	for _, formatter := range maker.Formatters {
 		log.Ctx(ctx).Debug().Msgf("formatting %s", formatter.Name())
-		err := formatter.Format(ctx, container)
+		err := formatter.Format(ctx, *container)
 		if err != nil {
 			return container, err
 		}
@@ -134,36 +133,43 @@ func (maker *Maker) ParseFiles(ctx context.Context, files []fetcher.FileDescript
 	return nil
 }
 
-func (maker *Maker) PreTransform(ctx context.Context, container *ConfigContainer) error {
-	for _, transformer := range maker.PreTransformers {
-		log.Ctx(ctx).Debug().Msgf("applying pre-transformer '%s'", transformer.Name())
-		t := time.Now()
-		err := transformer.Transform(ctx, container)
-		log.Ctx(ctx).Debug().Msgf("pre-transformer '%s' took: %s", transformer.Name(), time.Since(t))
-		if err != nil {
-			return err
-		}
-	}
-	err := maker.stateHandler.HandleStateDatabags(ctx, container)
-	if err != nil {
-		return errors.Wrap(err, "error creating persisters")
-	}
-	return nil
-}
-
-func (maker *Maker) Transform(ctx context.Context, container *ConfigContainer) error {
+//Transform returns the new or modified databags produced by the transformers
+func (maker *Maker) Transform(ctx context.Context, container ConfigContainer) (newOrModifiedBags ConfigContainer, e error) {
+	output := NewConfigContainer()
 	for _, transformer := range maker.Transformers {
 		//log.Ctx(ctx).Debug().Msgf("applying transformer '%s'", transformer.Name())
 		//t := time.Now()
-		err := transformer.Transform(ctx, container)
+		newBags, err := transformer.Transform(ctx, container)
+		//log.Ctx(ctx).Debug().Msgf("transformer '%s' took: %s", transformer.Name(), time.Since(t))
+		if err != nil {
+			return ConfigContainer{}, err
+		}
+		err = output.MergeWith(newBags)
+		if err != nil {
+			return ConfigContainer{}, err
+		}
+	}
+	//err := maker.stateHandler.HandleStateDatabags(ctx, container)
+	//if err != nil {
+	//	return errors.Wrap(err, "error creating persisters")
+	//}
+	return *output, nil
+}
+
+//TransformInPlace applied the transformers and merge the databags they produce into the given container directly
+func (maker *Maker) TransformInPlace(ctx context.Context, container *ConfigContainer) error {
+	for _, transformer := range maker.Transformers {
+		//log.Ctx(ctx).Debug().Msgf("applying transformer '%s'", transformer.Name())
+		//t := time.Now()
+		newBags, err := transformer.Transform(ctx, *container)
 		//log.Ctx(ctx).Debug().Msgf("transformer '%s' took: %s", transformer.Name(), time.Since(t))
 		if err != nil {
 			return err
 		}
-	}
-	err := maker.stateHandler.HandleStateDatabags(ctx, container)
-	if err != nil {
-		return errors.Wrap(err, "error creating persisters")
+		err = container.MergeWith(newBags)
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }

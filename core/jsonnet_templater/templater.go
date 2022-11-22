@@ -129,7 +129,7 @@ func executeJsonnet(ctx context.Context, maker *core.Maker, input core.ConfigCon
 		return errors.Wrap(err, "failed to insert databags")
 	}
 
-	err = maker.Transform(ctx, output)
+	err = maker.TransformInPlace(ctx, output)
 	if err != nil {
 		return errors.Wrap(err, "error transforming container in pipeline")
 	}
@@ -166,7 +166,7 @@ func executeJsonnet(ctx context.Context, maker *core.Maker, input core.ConfigCon
 					return errors.Wrap(err, "failed to insert databags")
 				}
 
-				err = maker.Transform(ctx, output)
+				err = maker.TransformInPlace(ctx, output)
 				if err != nil {
 					return errors.Wrap(err, "error transforming container in pipeline")
 				}

@@ -16,7 +16,7 @@ func (t ZipperFormatter) Name() string {
 	return "zipper_fmt"
 }
 
-func (t ZipperFormatter) Format(ctx context.Context, data *core.ConfigContainer) error {
+func (t ZipperFormatter) Format(ctx context.Context, data core.ConfigContainer) error {
 	for resourceType, m := range data.DataBags {
 		if resourceType != "zipper" {
 			continue

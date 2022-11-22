@@ -13,36 +13,44 @@ func (t SimplifierTransformer) Name() string {
 	return "simplifier_transform"
 }
 
-func (t SimplifierTransformer) Transform(ctx context.Context, data *core.ConfigContainer) error {
+func (t SimplifierTransformer) Transform(ctx context.Context, data core.ConfigContainer) (core.ConfigContainer, error) {
+	output := core.NewConfigContainer()
 	for resourceType, m := range data.DataBags {
 		for name, group := range m {
-			for i, databag := range group {
-				databag, err := simplifyLoop(ctx, databag)
+			for _, databag := range group {
+				changed, changedBag, err := simplifyLoop(ctx, databag)
 				if err != nil {
-					return errors.Wrapf(err, "error simplifying databag '%s.%s'", resourceType, name)
+					return core.ConfigContainer{}, errors.Wrapf(err, "error simplifying databag '%s.%s'", resourceType, name)
 				}
-				data.DataBags[resourceType][name][i] = databag
+				if !changed {
+					continue
+				}
+				err = output.Insert(changedBag)
+				if err != nil {
+					return core.ConfigContainer{}, errors.Wrapf(err, "error inserting simplified databag '%s.%s'", resourceType, name)
+				}
 			}
 		}
 	}
-	return nil
+	return *output, nil
 }
 
-func simplifyLoop(ctx context.Context, databag core.DataBag) (core.DataBag, error) {
+func simplifyLoop(ctx context.Context, databag core.DataBag) (changed bool, changedBag core.DataBag, e error) {
 	for {
-		count := 0
+		shouldStop := true
 		simplified, err := visit(ctx, core.TokenPtr(databag.Value), func() {
-			count++
+			changed = true
+			shouldStop = false
 		})
 		if err != nil {
-			return core.DataBag{}, err
+			return false, core.DataBag{}, err
 		}
 		databag.Value = *simplified
-		if count == 0 {
+		if shouldStop {
 			break
 		}
 	}
-	return databag, nil
+	return changed, databag, nil
 }
 
 func visit(ctx context.Context, token *core.SyntaxToken, counter func()) (*core.SyntaxToken, error) {
