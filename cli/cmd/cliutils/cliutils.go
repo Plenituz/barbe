@@ -77,7 +77,7 @@ func IterateDirectories(ctx context.Context, command core.MakeCommand, allFiles 
 						return s
 					}
 					split := strings.Split(parsedUrl.Path, "/")
-					if len(split) < 2 {
+					if len(split) < 3 {
 						log.Ctx(ctx).Warn().Err(err).Msg("failed to parse component name in url transformer")
 						return s
 					}

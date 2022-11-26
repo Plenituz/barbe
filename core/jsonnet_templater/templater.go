@@ -9,10 +9,12 @@ import (
 	"fmt"
 	"github.com/google/go-jsonnet"
 	"github.com/google/go-jsonnet/ast"
+	"github.com/opentracing/opentracing-go"
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog/log"
 	"io"
 	"os"
+	"path"
 	"regexp"
 	"strings"
 )
@@ -137,40 +139,91 @@ func executeJsonnet(ctx context.Context, maker *core.Maker, input core.ConfigCon
 	if len(c.Pipelines) > 0 {
 		for pipelineIndex, pipelineLength := range c.Pipelines {
 			for stepIndex := 0; stepIndex < pipelineLength; stepIndex++ {
-				stepInput := input.Clone()
-				err = stepInput.MergeWith(*output)
-				if err != nil {
-					return errors.Wrap(err, "failed to merge input with container")
-				}
-				log.Ctx(ctx).Debug().Msgf("executing '%s.%s' pipeline[%d][%d] (%d keys in input)", templateFile.Name, maker.Command, pipelineIndex, stepIndex, len(stepInput.DataBags))
-				err = populateContainerInVm(vm, *stepInput)
-				if err != nil {
-					return errors.Wrap(err, "failed to populate container in vm")
-				}
-				vm.ExtVar("barbe_selected_pipeline", fmt.Sprintf("%d", pipelineIndex))
-				vm.ExtVar("barbe_selected_pipeline_step", fmt.Sprintf("%d", stepIndex))
-				jsonStr, err := vm.Evaluate(node)
-				if err != nil {
-					return formatJsonnetError(ctx, fmt.Sprintf("pipeline[%d][%d]", pipelineIndex, stepIndex), err)
-				}
+				err = func() error {
+					stepInput := input.Clone()
+					err = stepInput.MergeWith(*output)
+					if err != nil {
+						return errors.Wrap(err, "failed to merge input with container")
+					}
+					log.Ctx(ctx).Debug().Msgf("executing '%s.%s' pipeline[%d][%d] (%d keys in input)", templateFile.Name, maker.Command, pipelineIndex, stepIndex, len(stepInput.DataBags))
 
-				var parsedResult parsedPipelineResult
-				err = json.Unmarshal([]byte(jsonStr), &parsedResult)
-				if err != nil {
-					return errors.Wrap(err, "failed to unmarshal jsonnet output")
-				}
-				log.Ctx(ctx).Debug().Msgf("'%s.%s' pipeline[%d][%d] created %d keys", templateFile.Name, maker.Command, pipelineIndex, stepIndex, len(parsedResult.Pipelines.Databags))
+					//var traceCtx context.Context
+					//var task *trace.Task
+					var span opentracing.Span
+					if os.Getenv("BARBE_TRACE") != "" {
+						b, err := json.Marshal(stepInput)
+						if err != nil {
+							return errors.Wrap(err, "failed to marshal input for trace")
+						}
+						span = opentracing.GlobalTracer().StartSpan(fmt.Sprintf("%s.pipeline[%d][%d]", path.Base(templateFile.Name), pipelineIndex, stepIndex), opentracing.ChildOf(opentracing.SpanFromContext(ctx).Context()))
+						span.LogKV("command", maker.Command)
+						span.LogKV("input", string(b))
+						defer span.Finish()
+						ctx = opentracing.ContextWithSpan(ctx, span)
+						//traceCtx, task = trace.NewTask(ctx, fmt.Sprintf("%s.pipeline[%d][%d]", path.Base(templateFile.Name), pipelineIndex, stepIndex))
+						//defer task.End()
+						//b, err := json.Marshal(stepInput)
+						//if err != nil {
+						//	return errors.Wrap(err, "failed to marshal input for trace")
+						//}
+						//trace.Log(traceCtx, "input", string(b))
+						//trace.Log(traceCtx, "command", ctx.Value("maker").(*core.Maker).Command)
+					}
 
-				err = insertDatabags(parsedResult.Pipelines.Databags, output)
-				if err != nil {
-					return errors.Wrap(err, "failed to insert databags")
-				}
+					err = populateContainerInVm(vm, *stepInput)
+					if err != nil {
+						return errors.Wrap(err, "failed to populate container in vm")
+					}
+					vm.ExtVar("barbe_selected_pipeline", fmt.Sprintf("%d", pipelineIndex))
+					vm.ExtVar("barbe_selected_pipeline_step", fmt.Sprintf("%d", stepIndex))
+					jsonStr, err := vm.Evaluate(node)
+					if err != nil {
+						return formatJsonnetError(ctx, fmt.Sprintf("%s.pipeline[%d][%d]", templateFile.Name, pipelineIndex, stepIndex), err)
+					}
 
-				err = maker.TransformInPlace(ctx, output)
-				if err != nil {
-					return errors.Wrap(err, "error transforming container in pipeline")
-				}
+					var parsedResult parsedPipelineResult
+					err = json.Unmarshal([]byte(jsonStr), &parsedResult)
+					if err != nil {
+						return errors.Wrap(err, "failed to unmarshal jsonnet output")
+					}
+					log.Ctx(ctx).Debug().Msgf("'%s.%s' pipeline[%d][%d] created %d keys", templateFile.Name, maker.Command, pipelineIndex, stepIndex, len(parsedResult.Pipelines.Databags))
 
+					//transform stepInput + parsedResult.Pipelines.Databags
+					//add the result of transformation + parsedResult.Pipelines.Databags to output
+
+					toTransform := stepInput.Clone()
+					err = insertDatabags(parsedResult.Pipelines.Databags, toTransform)
+					if err != nil {
+						return errors.Wrap(err, "failed to insert databags")
+					}
+					newFromTransform, err := maker.Transform(ctx, *toTransform)
+					if err != nil {
+						return errors.Wrap(err, "error transforming container in pipeline")
+					}
+
+					err = insertDatabags(parsedResult.Pipelines.Databags, output)
+					if err != nil {
+						return errors.Wrap(err, "failed to insert databags")
+					}
+					err = output.MergeWith(newFromTransform)
+					if err != nil {
+						return errors.Wrap(err, "failed to merge container")
+					}
+
+					if os.Getenv("BARBE_TRACE") != "" {
+						b, err := json.Marshal(output)
+						if err != nil {
+							return errors.Wrap(err, "failed to marshal output for trace")
+						}
+						span.LogKV("output", string(b))
+						//trace.Log(traceCtx, "output", string(b))
+					}
+
+					return nil
+				}()
+				if err != nil {
+					return err
+				}
 			}
 		}
 	}

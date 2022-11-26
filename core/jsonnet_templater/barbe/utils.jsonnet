@@ -5,13 +5,13 @@ local barbe = {
         if std.isArray(arr) && std.length(std.filter(std.isArray, arr)) == 0 then
             arr
         else
-        std.flattenArrays([
-            if std.isArray(item) then
-                barbe.flatten(item)
-            else
-                [item]
-            for item in arr
-        ]),
+            std.flattenArrays([
+                if std.isArray(item) then
+                    barbe.flatten(item)
+                else
+                    [item]
+                for item in arr
+            ]),
 
     databags(arr):: { Databags: barbe.flatten(arr) },
 
@@ -340,7 +340,7 @@ local barbe = {
         if token.Type == "template" then
             std.join("", [barbe.asStr(part) for part in token.Parts])
         else if token.Type == "literal_value" then
-            token.Value
+            std.get(token, "Value", null)
         else if token.Type == "array_const" then
             std.get(token, "ArrayConst", [])
         else if token.Type == "object_const" then
@@ -509,6 +509,22 @@ local barbe = {
         else
             globalDefaults
         ,
+
+    cloudResourceRaw(dir, id, kind, type, name, value):: {
+        Type: "cr_" + (
+            if kind != null then
+                (
+                    "[" + kind + (
+                        if id != null then "(" + id + ")" else ""
+                    ) +
+                    "]" +
+                    (if type != null then "_" else "")
+                )
+            else ""
+        ) + (if type != null then type else ""),
+        Name: name,
+        Value: value,
+    } + if dir != null then { Meta: { sub_dir: dir } } else {},
 
 };
 barbe

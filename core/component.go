@@ -3,9 +3,13 @@ package core
 import (
 	"barbe/core/fetcher"
 	"context"
+	"encoding/json"
+	"github.com/opentracing/opentracing-go"
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/sync/errgroup"
+	"os"
+	"path"
 	"reflect"
 )
 
@@ -65,10 +69,6 @@ func (maker *Maker) applyComponentsLoop(ctx context.Context, executable Executab
 		if err != nil {
 			return errors.Wrap(err, "error transforming container in pipeline")
 		}
-		err = maker.stateHandler.HandleStateDatabags(ctx, componentInput)
-		if err != nil {
-			return errors.Wrap(err, "error creating persisters")
-		}
 
 		//remove databags that are in componentInput and already in container, to avoid looping forever
 		filterOutExistingIdenticalDatabags(ctx, *container, componentInput)
@@ -102,10 +102,6 @@ func (maker *Maker) applyComponentsLoop(ctx context.Context, executable Executab
 			if err != nil {
 				return errors.Wrap(err, "error merging databags")
 			}
-			err = maker.stateHandler.HandleStateDatabags(ctx, componentInput)
-			if err != nil {
-				return errors.Wrap(err, "error creating persisters")
-			}
 		} else {
 			err = container.MergeWith(*comparison)
 			if err != nil {
@@ -138,6 +134,31 @@ func filterOutExistingIdenticalDatabags(ctx context.Context, container ConfigCon
 }
 
 func (maker *Maker) ApplyComponent(ctx context.Context, file fetcher.FileDescription, input ConfigContainer) (ConfigContainer, error) {
+	//var traceCtx context.Context
+	//var task *trace.Task
+	var span opentracing.Span
+	if os.Getenv("BARBE_TRACE") != "" {
+		b, err := json.Marshal(input)
+		if err != nil {
+			return ConfigContainer{}, errors.Wrap(err, "error marshalling input for trace")
+		}
+
+		span = opentracing.GlobalTracer().StartSpan(path.Base(file.Name), opentracing.ChildOf(opentracing.SpanFromContext(ctx).Context()))
+		span.LogKV("command", maker.Command)
+		span.LogKV("input", string(b))
+		defer span.Finish()
+		ctx = opentracing.ContextWithSpan(ctx, span)
+		//defer span.Finish()
+		//traceCtx, task = trace.NewTask(ctx, path.Base(file.Name))
+		//defer task.End()
+		//b, err := json.Marshal(input)
+		//if err != nil {
+		//	return ConfigContainer{}, errors.Wrap(err, "error marshalling input for trace")
+		//}
+		//trace.Log(traceCtx, "input", string(b))
+		//trace.Log(traceCtx, "command", ctx.Value("maker").(*Maker).Command)
+	}
+
 	log.Ctx(ctx).Debug().Msg("applying component '" + file.Name + "'")
 	output := NewConfigContainer()
 	for _, engine := range maker.Templaters {
@@ -158,6 +179,14 @@ func (maker *Maker) ApplyComponent(ctx context.Context, file fetcher.FileDescrip
 	err := maker.TransformInPlace(ctx, output)
 	if err != nil {
 		return ConfigContainer{}, err
+	}
+	if os.Getenv("BARBE_TRACE") != "" {
+		b, err := json.Marshal(output)
+		if err != nil {
+			return ConfigContainer{}, errors.Wrap(err, "error marshalling output for trace")
+		}
+		span.LogKV("output", string(b))
+		//trace.Log(traceCtx, "output", string(b))
 	}
 	return *output, nil
 }

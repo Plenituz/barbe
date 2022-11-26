@@ -7,9 +7,12 @@ import (
 	"barbe/core"
 	"barbe/core/fetcher"
 	"context"
+	"encoding/json"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"os"
+	"path"
 )
 
 var destroyCmd = &cobra.Command{
@@ -49,9 +52,22 @@ var destroyCmd = &cobra.Command{
 		})
 
 		err = cliutils.IterateDirectories(ctx, core.MakeCommandDestroy, allFiles, func(files []fetcher.FileDescription, ctx context.Context, maker *core.Maker) error {
-			_, err = maker.Make(ctx, files)
+			container, err := maker.Make(ctx, files)
 			if err != nil {
 				log.Ctx(ctx).Fatal().Err(err).Msg("generation failed")
+			}
+			if viper.GetBool("debug-bags") {
+				b, err := json.MarshalIndent(container, "", "  ")
+				if err != nil {
+					log.Ctx(ctx).Error().Err(err).Msg("failed to marshal container (for --debug-bags)")
+				} else {
+					outputFile := path.Join(maker.OutputDir, "debug-bags.json")
+					err = os.WriteFile(outputFile, b, 0644)
+					if err != nil {
+						log.Ctx(ctx).Error().Err(err).Msg("failed to write debug-bags.json")
+					}
+					log.Ctx(ctx).Info().Msg("wrote databags at '" + outputFile + "'")
+				}
 			}
 			return nil
 		})

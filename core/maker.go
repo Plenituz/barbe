@@ -4,8 +4,11 @@ import (
 	"barbe/core/fetcher"
 	"barbe/core/state_display"
 	"context"
+	"github.com/lightstep/lightstep-tracer-go"
+	"github.com/opentracing/opentracing-go"
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog/log"
+	"os"
 	"time"
 )
 
@@ -26,7 +29,7 @@ type Maker struct {
 	Formatters   []Formatter
 
 	Fetcher      *fetcher.Fetcher
-	stateHandler *StateHandler
+	StateHandler *StateHandler
 }
 
 func NewMaker(command MakeCommand) *Maker {
@@ -40,11 +43,38 @@ func NewMaker(command MakeCommand) *Maker {
 	if err != nil {
 		panic(err)
 	}
-	maker.stateHandler = stateHandler
+	maker.StateHandler = stateHandler
 	return maker
 }
 
 func (maker *Maker) Make(ctx context.Context, inputFiles []fetcher.FileDescription) (*ConfigContainer, error) {
+	if os.Getenv("BARBE_TRACE") != "" {
+		//f, err := os.Create(path.Join(maker.OutputDir, "trace.out"))
+		//if err != nil {
+		//	return nil, errors.Wrap(err, "error creating trace file")
+		//}
+		//defer f.Close()
+		//err = trace.Start(f)
+		//if err != nil {
+		//	return nil, errors.Wrap(err, "error starting trace")
+		//}
+		//defer trace.Stop()
+
+		lightstepTracer := lightstep.NewTracer(lightstep.Options{
+			AccessToken:    os.Getenv("BARBE_TRACE"),
+			MaxLogValueLen: 50000,
+		})
+
+		opentracing.SetGlobalTracer(lightstepTracer)
+		defer lightstepTracer.Close(ctx)
+		defer lightstepTracer.Flush(ctx)
+
+		span := opentracing.GlobalTracer().StartSpan("Make")
+		span.LogKV("command", maker.Command)
+		defer span.Finish()
+		ctx = opentracing.ContextWithSpan(ctx, span)
+	}
+
 	desiredCommand := maker.Command
 	container := NewConfigContainer()
 	err := maker.ParseFiles(ctx, inputFiles, container)
@@ -126,7 +156,7 @@ func (maker *Maker) ParseFiles(ctx context.Context, files []fetcher.FileDescript
 			}
 		}
 	}
-	err := maker.stateHandler.HandleStateDatabags(ctx, container)
+	err := maker.StateHandler.HandleStateDatabags(ctx, container)
 	if err != nil {
 		return errors.Wrap(err, "error creating persisters")
 	}
@@ -135,6 +165,10 @@ func (maker *Maker) ParseFiles(ctx context.Context, files []fetcher.FileDescript
 
 //Transform returns the new or modified databags produced by the transformers
 func (maker *Maker) Transform(ctx context.Context, container ConfigContainer) (newOrModifiedBags ConfigContainer, e error) {
+	err := maker.StateHandler.HandleStateDatabags(ctx, &container)
+	if err != nil {
+		return ConfigContainer{}, errors.Wrap(err, "error creating persisters")
+	}
 	output := NewConfigContainer()
 	for _, transformer := range maker.Transformers {
 		//log.Ctx(ctx).Debug().Msgf("applying transformer '%s'", transformer.Name())
@@ -149,15 +183,15 @@ func (maker *Maker) Transform(ctx context.Context, container ConfigContainer) (n
 			return ConfigContainer{}, err
 		}
 	}
-	//err := maker.stateHandler.HandleStateDatabags(ctx, container)
-	//if err != nil {
-	//	return errors.Wrap(err, "error creating persisters")
-	//}
 	return *output, nil
 }
 
 //TransformInPlace applied the transformers and merge the databags they produce into the given container directly
 func (maker *Maker) TransformInPlace(ctx context.Context, container *ConfigContainer) error {
+	err := maker.StateHandler.HandleStateDatabags(ctx, container)
+	if err != nil {
+		return errors.Wrap(err, "error creating persisters")
+	}
 	for _, transformer := range maker.Transformers {
 		//log.Ctx(ctx).Debug().Msgf("applying transformer '%s'", transformer.Name())
 		//t := time.Now()
