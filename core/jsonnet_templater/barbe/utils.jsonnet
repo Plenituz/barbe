@@ -356,7 +356,23 @@ local barbe = {
     asValArrayConst(token):: [barbe.asVal(item) for item in barbe.asVal(token)],
 
     asSyntax(token)::
-        if std.isObject(token) && std.objectHas(token, "Type") then
+        if std.isObject(token) && std.objectHas(token, "Type") && std.member([
+            "literal_value",
+            "scope_traversal",
+            "function_call",
+            "template",
+            "object_const",
+            "array_const",
+            "index_access",
+            "for",
+            "relative_traversal",
+            "conditional",
+            "binary_op",
+            "unary_op",
+            "parens",
+            "splat",
+            "anon"
+        ], token.Type) then
             token
         else if std.isString(token) || std.isNumber(token) || std.isBoolean(token) then
             {
@@ -523,8 +539,8 @@ local barbe = {
             else ""
         ) + (if type != null then type else ""),
         Name: name,
-        Value: value,
-    } + if dir != null then { Meta: { sub_dir: dir } } else {},
+        Value: barbe.asSyntax(value) + (if dir != null then { Meta: { sub_dir: dir } } else {}),
+    },
 
 };
 barbe

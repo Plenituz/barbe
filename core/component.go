@@ -13,11 +13,11 @@ import (
 	"reflect"
 )
 
-func (maker *Maker) ApplyComponents(ctx context.Context, executable Executable, container *ConfigContainer) error {
+func (maker *Maker) ApplyComponents(ctx context.Context, container *ConfigContainer) error {
 	for i := 0; i < maxComponentLoops; i++ {
 		beforeApply := container.Clone()
 		log.Ctx(ctx).Debug().Msgf("master, loop %d", i)
-		err := maker.applyComponentsLoop(ctx, executable, container)
+		err := maker.applyComponentsLoop(ctx, container)
 		if err != nil {
 			return err
 		}
@@ -33,15 +33,15 @@ func (maker *Maker) ApplyComponents(ctx context.Context, executable Executable, 
 	return nil
 }
 
-func (maker *Maker) applyComponentsLoop(ctx context.Context, executable Executable, container *ConfigContainer) error {
+func (maker *Maker) applyComponentsLoop(ctx context.Context, container *ConfigContainer) error {
 	componentInput := container
 	for i := 0; i < maxComponentLoops; i++ {
 		log.Ctx(ctx).Debug().Msgf("applying components, loop %d", i)
 		eg := errgroup.Group{}
 		eg.SetLimit(50)
 		newDatabags := NewConcurrentConfigContainer()
-		for i := range executable.Components {
-			component := executable.Components[i]
+		for i := range maker.Executable.Components {
+			component := maker.Executable.Components[i]
 			eg.Go(func() error {
 				input := componentInput.Clone()
 				output, err := maker.ApplyComponent(ctx, component, *input)
@@ -122,10 +122,22 @@ func filterOutExistingIdenticalDatabags(ctx context.Context, container ConfigCon
 			for _, databag := range databagGroup {
 				if container.Contains(databag) {
 					for _, existingBag := range container.GetDataBagGroup(typeName, databagName) {
-						if reflect.DeepEqual(existingBag, databag) {
-							//log.Ctx(ctx).Debug().Msgf("removing databag %s.%s.%s from component input, already in container", typeName, databagName, strings.Join(databag.Labels, "."))
-							newDatabags.DeleteDataBag(typeName, databagName, databag.Labels)
+						if !reflect.DeepEqual(existingBag.Labels, databag.Labels) {
+							continue
 						}
+						//check if the existing token is a super set of the new one:
+						//if the existing token is a super set, that means when they get merged nothing will change
+						//so the new one can be ignored
+						//we check this first because TokensDeepEqual could return false in that case
+						if existingBag.Value.IsSuperSetOf(databag.Value) {
+							newDatabags.DeleteDataBag(typeName, databagName, databag.Labels)
+							continue
+						}
+						if !TokensDeepEqual(existingBag.Value, databag.Value) {
+							continue
+						}
+						//log.Ctx(ctx).Debug().Msgf("removing databag %s.%s.%s from component input, already in container", typeName, databagName, strings.Join(databag.Labels, "."))
+						newDatabags.DeleteDataBag(typeName, databagName, databag.Labels)
 					}
 				}
 			}

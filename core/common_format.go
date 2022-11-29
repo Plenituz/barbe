@@ -43,6 +43,28 @@ const (
 	maxComponentLoops = 200
 )
 
+func IsTokenType(t string) bool {
+	switch t {
+	case TokenTypeLiteralValue,
+		TokenTypeScopeTraversal,
+		TokenTypeFunctionCall,
+		TokenTypeTemplate,
+		TokenTypeObjectConst,
+		TokenTypeArrayConst,
+		TokenTypeIndexAccess,
+		TokenTypeFor,
+		TokenTypeRelativeTraversal,
+		TokenTypeConditional,
+		TokenTypeBinaryOp,
+		TokenTypeUnaryOp,
+		TokenTypeParens,
+		TokenTypeSplat,
+		TokenTypeAnonymous:
+		return true
+	}
+	return false
+}
+
 type TraverseType = string
 
 const (
@@ -134,6 +156,23 @@ type SyntaxToken struct {
 	SplatEach *SyntaxToken `json:",omitempty"`
 }
 
+// a token A is the super set of another token B if A contains everything B does or more.
+func (t SyntaxToken) IsSuperSetOf(other SyntaxToken) bool {
+	if t.Type != other.Type {
+		return false
+	}
+	switch t.Type {
+	default:
+		return false
+	case TokenTypeObjectConst:
+		merged, err := t.MergeWith(other)
+		if err != nil {
+			return false
+		}
+		return TokensDeepEqual(merged, t)
+	}
+}
+
 func (t SyntaxToken) MergeWith(other SyntaxToken) (SyntaxToken, error) {
 	if t.Type != other.Type {
 		return other, nil
@@ -141,8 +180,6 @@ func (t SyntaxToken) MergeWith(other SyntaxToken) (SyntaxToken, error) {
 	switch t.Type {
 	default:
 		return other, nil
-	//case TokenTypeArrayConst:
-	//	t.ArrayConst = append(t.ArrayConst, other.ArrayConst...)
 	case TokenTypeObjectConst:
 		existingValues := map[string]int{}
 		for i, o := range t.ObjectConst {

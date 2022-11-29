@@ -99,7 +99,7 @@ func (s *StateHandler) HandleStateDatabags(ctx context.Context, container *Confi
 
 	container.DeleteDataBagsOfType(StateDatabagType)
 	for key, value := range s.currentState.States {
-		token, err := DecodeValue(value)
+		token, err := GoValueToToken(value)
 		if err != nil {
 			return errors.Wrap(err, "error decoding state value as syntax token")
 		}

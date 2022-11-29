@@ -37,7 +37,7 @@ func (j JsonParser) Parse(ctx context.Context, fileDesc fetcher.FileDescription,
 		}
 		if mapType, ok := rawType.(map[string]interface{}); ok {
 			for name, tokenI := range mapType {
-				token, err := parsedJsonToToken(tokenI)
+				token, err := ParsedJsonToToken(tokenI)
 				if err != nil {
 					return errors.Wrap(err, "failed to parse json")
 				}
@@ -52,7 +52,7 @@ func (j JsonParser) Parse(ctx context.Context, fileDesc fetcher.FileDescription,
 				}
 			}
 		} else {
-			token, err := parsedJsonToToken(rawType)
+			token, err := ParsedJsonToToken(rawType)
 			if err != nil {
 				return errors.Wrap(err, "failed to parse json")
 			}
@@ -70,7 +70,7 @@ func (j JsonParser) Parse(ctx context.Context, fileDesc fetcher.FileDescription,
 	return nil
 }
 
-func parsedJsonToToken(v interface{}) (core.SyntaxToken, error) {
+func ParsedJsonToToken(v interface{}) (core.SyntaxToken, error) {
 	if core.InterfaceIsNil(v) {
 		return core.SyntaxToken{
 			Type:  core.TokenTypeLiteralValue,
@@ -82,7 +82,7 @@ func parsedJsonToToken(v interface{}) (core.SyntaxToken, error) {
 	default:
 		return core.SyntaxToken{}, errors.New("cannot decode value of type " + rVal.Type().Kind().String())
 	case reflect.Interface, reflect.Ptr:
-		return parsedJsonToToken(rVal.Elem().Interface())
+		return ParsedJsonToToken(rVal.Elem().Interface())
 	case reflect.Bool,
 		reflect.String,
 		reflect.Int,
@@ -100,7 +100,7 @@ func parsedJsonToToken(v interface{}) (core.SyntaxToken, error) {
 		reflect.Float64,
 		reflect.Complex64,
 		reflect.Complex128:
-		return core.DecodeValue(v)
+		return core.GoValueToToken(v)
 
 	case reflect.Array, reflect.Slice:
 		output := core.SyntaxToken{
@@ -109,7 +109,7 @@ func parsedJsonToToken(v interface{}) (core.SyntaxToken, error) {
 		}
 
 		for i := 0; i < rVal.Len(); i++ {
-			item, err := parsedJsonToToken(rVal.Index(i).Interface())
+			item, err := ParsedJsonToToken(rVal.Index(i).Interface())
 			if err != nil {
 				return core.SyntaxToken{}, errors.Wrap(err, fmt.Sprintf("error decoding index %v of array", i))
 			}
@@ -130,7 +130,7 @@ func parsedJsonToToken(v interface{}) (core.SyntaxToken, error) {
 			if k.Kind() != reflect.String {
 				return core.SyntaxToken{}, errors.New("map key must be string")
 			}
-			item, err := parsedJsonToToken(v.Interface())
+			item, err := ParsedJsonToToken(v.Interface())
 			if err != nil {
 				return core.SyntaxToken{}, errors.Wrap(err, fmt.Sprintf("error decoding map value for key %v", k.String()))
 			}
@@ -155,7 +155,7 @@ func parsedJsonToToken(v interface{}) (core.SyntaxToken, error) {
 			if field.IsNil() || !field.IsValid() {
 				continue
 			}
-			item, err := parsedJsonToToken(field.Interface())
+			item, err := ParsedJsonToToken(field.Interface())
 			if err != nil {
 				return core.SyntaxToken{}, errors.Wrap(err, fmt.Sprintf("error decoding struct value for field %v", fieldName))
 			}

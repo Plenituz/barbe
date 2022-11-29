@@ -29,6 +29,7 @@ type sugarBag struct {
 	Name   string
 	Type   string
 	Labels []string
+	Meta   map[string]interface{}
 	Value  interface{}
 }
 
@@ -50,6 +51,7 @@ func createVm(ctx context.Context, maker *core.Maker, input core.ConfigContainer
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to populate container in vm")
 	}
+	vm.MaxStack = 100000
 	vm.ExtCode("barbe", Builtins)
 	vm.ExtVar("barbe_command", maker.Command)
 	vm.ExtVar("barbe_output_dir", ctx.Value("maker").(*core.Maker).OutputDir)
@@ -235,7 +237,7 @@ func insertDatabags(newBags []sugarBag, output *core.ConfigContainer) error {
 		if v.Name == "" && v.Type == "" {
 			continue
 		}
-		token, err := core.DecodeValue(v.Value)
+		token, err := core.GoValueToToken(v.Value)
 		if err != nil {
 			return errors.Wrap(err, "error decoding syntax token from jsonnet template")
 		}

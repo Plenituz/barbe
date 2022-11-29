@@ -30,6 +30,8 @@ type Maker struct {
 
 	Fetcher      *fetcher.Fetcher
 	StateHandler *StateHandler
+	//we keep this here so it can be modified on the fly if needed
+	Executable Executable
 }
 
 func NewMaker(command MakeCommand) *Maker {
@@ -90,6 +92,7 @@ func (maker *Maker) Make(ctx context.Context, inputFiles []fetcher.FileDescripti
 	if err != nil {
 		return container, errors.Wrap(err, "error getting templates")
 	}
+	maker.Executable = executable
 
 	if executable.Message != "" {
 		log.Ctx(ctx).Info().Msg(executable.Message)
@@ -109,7 +112,7 @@ func (maker *Maker) Make(ctx context.Context, inputFiles []fetcher.FileDescripti
 
 	state_display.StartMajorStep("Applying components for " + MakeCommandGenerate)
 	maker.Command = MakeCommandGenerate
-	err = maker.ApplyComponents(ctx, executable, container)
+	err = maker.ApplyComponents(ctx, container)
 	if err != nil {
 		return container, err
 	}
@@ -130,7 +133,7 @@ func (maker *Maker) Make(ctx context.Context, inputFiles []fetcher.FileDescripti
 
 	state_display.StartMajorStep("Applying components for " + desiredCommand)
 	maker.Command = desiredCommand
-	err = maker.ApplyComponents(ctx, executable, container)
+	err = maker.ApplyComponents(ctx, container)
 	if err != nil {
 		return container, err
 	}
