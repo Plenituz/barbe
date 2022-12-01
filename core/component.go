@@ -23,9 +23,9 @@ func (maker *Maker) ApplyComponents(ctx context.Context, container *ConfigContai
 		}
 		comparison := container.Clone()
 		filterOutExistingIdenticalDatabags(ctx, *beforeApply, comparison)
-		comparison.DeleteDataBagsOfType(StateDatabagType)
-		comparison.DeleteDataBagsOfType(BarbeStateSetDatabagType)
-		comparison.DeleteDataBagsOfType(BarbeStateDeleteDatabagType)
+		for _, t := range BarbeStateTypes {
+			comparison.DeleteDataBagsOfType(t)
+		}
 		if comparison.IsEmpty() {
 			break
 		}
@@ -76,9 +76,9 @@ func (maker *Maker) applyComponentsLoop(ctx context.Context, container *ConfigCo
 		//all the state-related databags shouldn't be compared or merged in the main container
 		//because they change all the time and would result in the component loop never ending (or just looping too much)
 		//we do want them on to be passed along to the next component execution tho, so the component can use them
-		comparison.DeleteDataBagsOfType(StateDatabagType)
-		comparison.DeleteDataBagsOfType(BarbeStateSetDatabagType)
-		comparison.DeleteDataBagsOfType(BarbeStateDeleteDatabagType)
+		for _, t := range BarbeStateTypes {
+			comparison.DeleteDataBagsOfType(t)
+		}
 		if comparison.IsEmpty() {
 			//transform again the whole container, and loop again if more databags were produced
 			newBags, err := maker.Transform(ctx, *container)
@@ -88,9 +88,9 @@ func (maker *Maker) applyComponentsLoop(ctx context.Context, container *ConfigCo
 
 			filterOutExistingIdenticalDatabags(ctx, *container, &newBags)
 			comparison := newBags.Clone()
-			comparison.DeleteDataBagsOfType(StateDatabagType)
-			comparison.DeleteDataBagsOfType(BarbeStateSetDatabagType)
-			comparison.DeleteDataBagsOfType(BarbeStateDeleteDatabagType)
+			for _, t := range BarbeStateTypes {
+				comparison.DeleteDataBagsOfType(t)
+			}
 			if comparison.IsEmpty() {
 				break
 			}
@@ -112,12 +112,20 @@ func (maker *Maker) applyComponentsLoop(ctx context.Context, container *ConfigCo
 	return nil
 }
 
+//removes all the databags that are in toRemove from container, only checks the type/name of the bags
+func filterOutDatabags(ctx context.Context, container *ConfigContainer, toRemove ConfigContainer) {
+	for _, databags := range toRemove.DataBags {
+		for _, databagGroup := range databags {
+			for _, databag := range databagGroup {
+				container.DeleteDataBag(databag.Type, databag.Name, databag.Labels)
+			}
+		}
+	}
+}
+
 //this removes all the bags that are in `container` from `newDatabags`
 func filterOutExistingIdenticalDatabags(ctx context.Context, container ConfigContainer, newDatabags *ConfigContainer) {
 	for typeName, databags := range newDatabags.DataBags {
-		if typeName == StateDatabagType {
-			continue
-		}
 		for databagName, databagGroup := range databags {
 			for _, databag := range databagGroup {
 				if container.Contains(databag) {

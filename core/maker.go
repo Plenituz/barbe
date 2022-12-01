@@ -30,8 +30,7 @@ type Maker struct {
 
 	Fetcher      *fetcher.Fetcher
 	StateHandler *StateHandler
-	//we keep this here so it can be modified on the fly if needed
-	Executable Executable
+	Executable   Executable
 }
 
 func NewMaker(command MakeCommand) *Maker {
@@ -49,7 +48,7 @@ func NewMaker(command MakeCommand) *Maker {
 	return maker
 }
 
-func (maker *Maker) Make(ctx context.Context, inputFiles []fetcher.FileDescription) (*ConfigContainer, error) {
+func (maker *Maker) Make(ctx context.Context, inputFiles []fetcher.FileDescription) (c *ConfigContainer, e error) {
 	if os.Getenv("BARBE_TRACE") != "" {
 		//f, err := os.Create(path.Join(maker.OutputDir, "trace.out"))
 		//if err != nil {

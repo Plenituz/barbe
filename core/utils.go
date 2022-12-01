@@ -121,9 +121,6 @@ func ConfigContainerDeepEqual(a ConfigContainer, b ConfigContainer) bool {
 		return false
 	}
 	for typeName, databags := range a.DataBags {
-		if typeName == StateDatabagType {
-			continue
-		}
 		for databagName, databagGroup := range databags {
 			for _, databag := range databagGroup {
 				if b.Contains(databag) {

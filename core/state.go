@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"github.com/pkg/errors"
+	"github.com/rs/zerolog/log"
 	"golang.org/x/sync/errgroup"
 	"sync"
 )
@@ -20,24 +21,47 @@ type StateActionName = string
 type StateAction struct {
 	Action StateActionName
 
-	//if Action is StateActionSet or StateActionDelete
+	//if Action is one of StateActionSet, StateActionDelete, StateActionPutInObject, StateActionDeleteFromObject
 	Key *string
 
 	//if Action is StateActionSet
 	SetValue any
+
+	//if Action is PutInObject
+	PutInObject map[string]any
+
+	//if Action is StateActionDeleteFromObject
+	DeleteFromObject *string
 }
 
 const (
-	StateStoreDatabagType           = "barbe_state_store"
-	StateDatabagType                = "barbe_state"
-	BarbeStateSetDatabagType        = "barbe_state_set"
-	BarbeStateDeleteDatabagType     = "barbe_state_delete"
+	StateStoreDatabagType = "barbe_state_store"
+	//overrides the value at the given key
+	BarbeStateSetDatabagType = "barbe_state(set_value)"
+	//assuming the given key is an object, adds the given key/value pairs to the object
+	BarbeStatePutDatabagType = "barbe_state(put_in_object)"
+	//assuming the given key is an object, removes the given key/value pairs from the object
+	BarbeStateDeleteFromObjectDatabagType = "barbe_state(delete_from_object)"
+	//delete the given key from the state completely
+	BarbeStateDeleteDatabagType     = "barbe_state(delete_key)"
 	CurrentStateHolderFormatVersion = 1
 
 	StatePersisterLocal = "local"
 
-	StateActionSet    = "set"
-	StateActionDelete = "delete"
+	StateActionSet              = "set"
+	StateActionDelete           = "delete"
+	StateActionPutInObject      = "put_in_object"
+	StateActionDeleteFromObject = "delete_from_object"
+)
+
+var (
+	//a list of all the barbe_state related databags types
+	BarbeStateTypes = []string{
+		BarbeStateSetDatabagType,
+		BarbeStatePutDatabagType,
+		BarbeStateDeleteDatabagType,
+		BarbeStateDeleteFromObjectDatabagType,
+	}
 )
 
 func NewStatePersister(ctx context.Context, maker *Maker, name string, config SyntaxToken) (StatePersister, error) {
@@ -80,37 +104,29 @@ func NewStateHandler(maker *Maker) *StateHandler {
 	}
 }
 
+func (s *StateHandler) GetState() map[string]any {
+	s.stateMutex.RLock()
+	defer s.stateMutex.RUnlock()
+	if s.currentState == nil {
+		return make(map[string]any)
+	}
+	if s.currentState.States == nil {
+		return make(map[string]any)
+	}
+	return s.currentState.States
+}
+
 func (s *StateHandler) HandleStateDatabags(ctx context.Context, container *ConfigContainer) error {
 	err := s.CreatePersisters(ctx, container)
 	if err != nil {
 		return err
 	}
-	_, err = s.HandleStateActions(container)
+	_, err = s.HandleStateActions(ctx, container)
 	if err != nil {
 		return err
 	}
-	container.DeleteDataBagsOfType(BarbeStateSetDatabagType)
-	container.DeleteDataBagsOfType(BarbeStateDeleteDatabagType)
-	s.stateMutex.RLock()
-	defer s.stateMutex.RUnlock()
-	if s.currentState == nil || s.currentState.States == nil {
-		return nil
-	}
-
-	container.DeleteDataBagsOfType(StateDatabagType)
-	for key, value := range s.currentState.States {
-		token, err := GoValueToToken(value)
-		if err != nil {
-			return errors.Wrap(err, "error decoding state value as syntax token")
-		}
-		err = container.Insert(DataBag{
-			Type:  StateDatabagType,
-			Name:  key,
-			Value: token,
-		})
-		if err != nil {
-			return errors.Wrap(err, "error inserting state databag '"+key+"'")
-		}
+	for _, t := range BarbeStateTypes {
+		container.DeleteDataBagsOfType(t)
 	}
 	return nil
 }
@@ -178,15 +194,57 @@ func (s *StateHandler) Persist() error {
 	return eg.Wait()
 }
 
-func (s *StateHandler) HandleStateActions(container *ConfigContainer) (hasChanged bool, err error) {
+func (s *StateHandler) HandleStateActions(ctx context.Context, container *ConfigContainer) (hasChanged bool, err error) {
 	stateActions := make([]StateAction, 0)
 
 	sets := container.GetDataBagsOfType(BarbeStateSetDatabagType)
 	for _, bag := range sets {
+		objI, _ := TokenToGoValue(bag.Value)
+		if InterfaceIsNil(objI) {
+			log.Ctx(ctx).Warn().Msgf("barbe_state(set_value) '%s' has a value that is interpreted as nil, ignoring it", bag.Name)
+			continue
+		}
 		stateActions = append(stateActions, StateAction{
 			Action:   StateActionSet,
 			Key:      Ptr(bag.Name),
-			SetValue: bag.Value,
+			SetValue: objI,
+		})
+	}
+
+	putInObjects := container.GetDataBagsOfType(BarbeStatePutDatabagType)
+	for _, bag := range putInObjects {
+		if bag.Value.Type != TokenTypeObjectConst {
+			log.Ctx(ctx).Warn().Msgf("barbe_state(put_in_object) '%s' has a value that is not an object, ignoring it", bag.Name)
+			continue
+		}
+		objI, _ := TokenToGoValue(bag.Value)
+		if InterfaceIsNil(objI) {
+			log.Ctx(ctx).Warn().Msgf("barbe_state(put_in_object) '%s' has a value that is interpreted as nil, ignoring it", bag.Name)
+			continue
+		}
+		obj, ok := objI.(map[string]any)
+		if !ok {
+			log.Ctx(ctx).Warn().Msgf("barbe_state(put_in_object) '%s' has a value that parsed as not an object: '%T'", bag.Name, objI)
+			continue
+		}
+		stateActions = append(stateActions, StateAction{
+			Action:      StateActionPutInObject,
+			Key:         Ptr(bag.Name),
+			PutInObject: obj,
+		})
+	}
+
+	deleteFromObjects := container.GetDataBagsOfType(BarbeStateDeleteFromObjectDatabagType)
+	for _, bag := range deleteFromObjects {
+		valueStr, err := ExtractAsStringValue(bag.Value)
+		if err != nil {
+			log.Ctx(ctx).Warn().Msgf("barbe_state(delete_from_object) '%s' has a value that is not a string, ignoring it", bag.Name)
+			continue
+		}
+		stateActions = append(stateActions, StateAction{
+			Action:           StateActionDeleteFromObject,
+			Key:              Ptr(bag.Name),
+			DeleteFromObject: Ptr(valueStr),
 		})
 	}
 
@@ -204,10 +262,7 @@ func (s *StateHandler) HandleStateActions(container *ConfigContainer) (hasChange
 			return false, errors.Wrap(err, "error applying state action")
 		}
 	}
-
-	hasChanged = len(deletes) != 0 || len(sets) != 0
-
-	if hasChanged {
+	if len(stateActions) != 0 {
 		err = s.Persist()
 		if err != nil {
 			return false, errors.Wrap(err, "error persisting state")
@@ -222,6 +277,10 @@ func (s *StateHandler) ApplyStateAction(action StateAction) error {
 		return s.applySetAction(action)
 	case StateActionDelete:
 		return s.applyDeleteAction(action)
+	case StateActionPutInObject:
+		return s.applyPutInObjectAction(action)
+	case StateActionDeleteFromObject:
+		return s.applyDeleteFromObjectAction(action)
 	default:
 		return errors.New("unknown state action '" + action.Action + "'")
 	}
@@ -257,5 +316,57 @@ func (s *StateHandler) applyDeleteAction(action StateAction) error {
 	s.stateMutex.Lock()
 	defer s.stateMutex.Unlock()
 	delete(s.currentState.States, *action.Key)
+	return nil
+}
+
+func (s *StateHandler) applyPutInObjectAction(action StateAction) error {
+	if action.Key == nil {
+		return errors.New("key is required for put_in_object action")
+	}
+	s.stateMutex.Lock()
+	defer s.stateMutex.Unlock()
+	if s.currentState == nil {
+		s.currentState = NewStateHolder()
+	}
+	if s.currentState.States == nil {
+		s.currentState.States = make(map[string]any)
+	}
+	if v, ok := s.currentState.States[*action.Key]; ok {
+		if _, ok := v.(map[string]any); !ok {
+			return errors.New("tried to use put_in_object but the state already has a non-object at key '" + *action.Key + "'")
+		}
+	} else {
+		s.currentState.States[*action.Key] = make(map[string]any)
+	}
+	for k, v := range action.PutInObject {
+		s.currentState.States[*action.Key].(map[string]any)[k] = v
+	}
+	return nil
+}
+
+func (s *StateHandler) applyDeleteFromObjectAction(action StateAction) error {
+	if action.Key == nil {
+		return errors.New("key is required for delete_from_object action")
+	}
+	if action.DeleteFromObject == nil {
+		return errors.New("delete_from_object is required for delete_from_object action")
+	}
+	s.stateMutex.RLock()
+	if s.currentState == nil || s.currentState.States == nil {
+		s.stateMutex.RUnlock()
+		return nil
+	}
+	s.stateMutex.RUnlock()
+
+	s.stateMutex.Lock()
+	defer s.stateMutex.Unlock()
+	if v, ok := s.currentState.States[*action.Key]; ok {
+		m, ok := v.(map[string]any)
+		if !ok {
+			return errors.New("tried to use delete_from_object but the state already has a non-object at key '" + *action.Key + "'")
+		}
+		delete(m, *action.DeleteFromObject)
+		s.currentState.States[*action.Key] = m
+	}
 	return nil
 }

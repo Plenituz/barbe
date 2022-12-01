@@ -47,7 +47,7 @@ func createVm(ctx context.Context, maker *core.Maker, input core.ConfigContainer
 		return nil, errors.Wrap(err, "failed to marshal env map")
 	}
 	vm := jsonnet.MakeVM()
-	err = populateContainerInVm(vm, input)
+	err = populateStateAndContainerInVm(maker, vm, input)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to populate container in vm")
 	}
@@ -100,12 +100,19 @@ func createVm(ctx context.Context, maker *core.Maker, input core.ConfigContainer
 	return vm, nil
 }
 
-func populateContainerInVm(vm *jsonnet.VM, container core.ConfigContainer) error {
+func populateStateAndContainerInVm(maker *core.Maker, vm *jsonnet.VM, container core.ConfigContainer) error {
 	ctxObjJson, err := json.Marshal(container.DataBags)
 	if err != nil {
 		return errors.Wrap(err, "failed to marshal context object")
 	}
 	vm.ExtCode("container", string(ctxObjJson))
+
+	state := maker.StateHandler.GetState()
+	stateJson, err := json.Marshal(state)
+	if err != nil {
+		return errors.Wrap(err, "failed to marshal state object")
+	}
+	vm.ExtCode("state", string(stateJson))
 	return nil
 }
 
@@ -172,7 +179,7 @@ func executeJsonnet(ctx context.Context, maker *core.Maker, input core.ConfigCon
 						//trace.Log(traceCtx, "command", ctx.Value("maker").(*core.Maker).Command)
 					}
 
-					err = populateContainerInVm(vm, *stepInput)
+					err = populateStateAndContainerInVm(maker, vm, *stepInput)
 					if err != nil {
 						return errors.Wrap(err, "failed to populate container in vm")
 					}

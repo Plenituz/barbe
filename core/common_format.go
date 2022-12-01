@@ -301,9 +301,8 @@ func (c *ConfigContainer) DeleteDataBagGroup(bagType, bagName string) {
 func (c *ConfigContainer) DeleteDataBag(bagType, bagName string, bagLabels []string) {
 	if _, ok := c.DataBags[bagType]; ok {
 		if _, ok := c.DataBags[bagType][bagName]; ok {
-			mergedLabel := strings.Join(bagLabels, "")
 			for i, bag := range c.DataBags[bagType][bagName] {
-				if strings.Join(bag.Labels, "") == mergedLabel {
+				if reflect.DeepEqual(bag.Labels, bagLabels) {
 					c.DataBags[bagType][bagName] = append(c.DataBags[bagType][bagName][:i], c.DataBags[bagType][bagName][i+1:]...)
 					if len(c.DataBags[bagType][bagName]) == 0 {
 						delete(c.DataBags[bagType], bagName)
