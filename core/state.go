@@ -47,6 +47,7 @@ const (
 	CurrentStateHolderFormatVersion = 1
 
 	StatePersisterLocal = "local"
+	StatePersisterS3    = "s3"
 
 	StateActionSet              = "set"
 	StateActionDelete           = "delete"
@@ -68,6 +69,8 @@ func NewStatePersister(ctx context.Context, maker *Maker, name string, config Sy
 	switch name {
 	case StatePersisterLocal:
 		return NewLocalStatePersister(ctx, maker, config), nil
+	case StatePersisterS3:
+		return NewS3StatePersister(ctx, config)
 	}
 	return nil, errors.New("unknown state persister '" + name + "'")
 }
