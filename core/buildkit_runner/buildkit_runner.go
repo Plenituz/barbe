@@ -1,6 +1,7 @@
 package buildkit_runner
 
 import (
+	"archive/tar"
 	"barbe/core"
 	"barbe/core/buildkit_runner/buildkit_status"
 	"barbe/core/buildkit_runner/buildkitd"
@@ -8,20 +9,25 @@ import (
 	"barbe/core/chown_util"
 	"barbe/core/fetcher"
 	"bufio"
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"github.com/containerd/containerd/platforms"
+	gitioutil "github.com/go-git/go-git/v5/utils/ioutil"
 	bk "github.com/moby/buildkit/client"
 	"github.com/moby/buildkit/client/llb"
 	"github.com/moby/buildkit/frontend/dockerfile/dockerfile2llb"
 	bkgw "github.com/moby/buildkit/frontend/gateway/client"
 	"github.com/moby/buildkit/session"
 	"github.com/moby/buildkit/util/buildinfo/types"
+	"github.com/moby/buildkit/util/testutil"
 	specs "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/sync/errgroup"
 	"io"
+	"io/ioutil"
 	"os"
 	"path"
 	"strings"
@@ -96,10 +102,12 @@ func (t *BuildkitRunner) Transform(ctx context.Context, data core.ConfigContaine
 }
 
 type runnerConfig struct {
-	Message             string
-	RequireConfirmation bool
-	ExportedFiles       map[string]string
-	ReadBackFiles       []string
+	Message               string
+	RequireConfirmation   bool
+	ExportedFiles         map[string]string
+	ExportedFilesLocation string
+	ReadBackFiles         []string
+	Excludes              []string
 
 	Dockerfile *string
 	NoCache    bool
@@ -112,12 +120,13 @@ type runnerConfig struct {
 
 type runnerExecutable struct {
 	//Name is just for display
-	Name                string
-	Message             string
-	RequireConfirmation bool
-	llbDefinition       llb.State
-	ExportedFiles       map[string]string
-	ReadBackFiles       []string
+	Name                  string
+	Message               string
+	RequireConfirmation   bool
+	llbDefinition         llb.State
+	ExportedFiles         map[string]string
+	ExportedFilesLocation string
+	ReadBackFiles         []string
 }
 
 func parseRunnerConfig(ctx context.Context, objConst []core.ObjectConstItem) (runnerConfig, error) {
@@ -160,6 +169,28 @@ func parseRunnerConfig(ctx context.Context, objConst []core.ObjectConstItem) (ru
 			}
 		}
 	}
+	excludesToken := core.GetObjectKeyValues("excludes", objConst)
+	if len(excludesToken) != 0 {
+		for _, excludeToken := range excludesToken {
+			switch excludeToken.Type {
+			case core.TokenTypeArrayConst:
+				for _, item := range excludeToken.ArrayConst {
+					exclude, err := core.ExtractAsStringValue(item)
+					if err != nil {
+						return runnerConfig{}, errors.Wrap(err, "error extracting exclude value on buildkit_run_in_container")
+					}
+					output.Excludes = append(output.Excludes, exclude)
+				}
+
+			default:
+				exclude, err := core.ExtractAsStringValue(excludeToken)
+				if err != nil {
+					return runnerConfig{}, errors.Wrap(err, "error extracting exclude value on buildkit_run_in_container")
+				}
+				output.Excludes = append(output.Excludes, exclude)
+			}
+		}
+	}
 
 	messageToken := core.GetObjectKeyValues("message", objConst)
 	if len(messageToken) != 0 {
@@ -172,6 +203,17 @@ func parseRunnerConfig(ctx context.Context, objConst []core.ObjectConstItem) (ru
 				output.Message += "\n"
 			}
 			output.Message += tmp
+		}
+	}
+
+	exportedFilesLocationToken := core.GetObjectKeyValues("exported_files_location", objConst)
+	if len(exportedFilesLocationToken) != 0 {
+		for _, token := range exportedFilesLocationToken {
+			tmp, err := core.ExtractAsStringValue(token)
+			if err != nil {
+				log.Ctx(ctx).Warn().Msgf("error extracting exported_files_location value on buildkit_run_in_container")
+			}
+			output.ExportedFilesLocation = tmp
 		}
 	}
 
@@ -302,13 +344,15 @@ func parseRunnerConfig(ctx context.Context, objConst []core.ObjectConstItem) (ru
 
 func buildLlbDefinition(ctx context.Context, runnerConfig runnerConfig) (runnerExecutable, error) {
 	executable := runnerExecutable{
-		ExportedFiles:       runnerConfig.ExportedFiles,
-		Message:             runnerConfig.Message,
-		RequireConfirmation: runnerConfig.RequireConfirmation,
-		ReadBackFiles:       runnerConfig.ReadBackFiles,
+		ExportedFiles:         runnerConfig.ExportedFiles,
+		Message:               runnerConfig.Message,
+		RequireConfirmation:   runnerConfig.RequireConfirmation,
+		ReadBackFiles:         runnerConfig.ReadBackFiles,
+		ExportedFilesLocation: runnerConfig.ExportedFilesLocation,
 	}
 	if runnerConfig.Dockerfile != nil {
 		opts := dockerfile2llb.ConvertOpt{
+			Excludes: runnerConfig.Excludes,
 			ContextByName: func(ctx context.Context, name, resolveMode string, p *specs.Platform) (*llb.State, *dockerfile2llb.Image, *binfotypes.BuildInfo, error) {
 				if !strings.HasPrefix(name, "docker.io/library/src") {
 					return nil, nil, nil, nil
@@ -351,6 +395,12 @@ func buildLlbDefinition(ctx context.Context, runnerConfig runnerConfig) (runnerE
 	return executable, nil
 }
 
+type nopWriteCloser struct {
+	io.Writer
+}
+
+func (nopWriteCloser) Close() error { return nil }
+
 func executeRunner(ctx context.Context, executable runnerExecutable, output *core.ConcurrentConfigContainer) error {
 	//state_display.AddLogLine(state_display.FindActiveMajorStepWithMinorStepNamed("buildkit_runner"), "buildkit_runner", executable.Name)
 	maker := ctx.Value("maker").(*core.Maker)
@@ -365,6 +415,7 @@ func executeRunner(ctx context.Context, executable runnerExecutable, output *cor
 		},
 	}
 
+	var tarBuffer bytes.Buffer
 	if len(executable.ExportedFiles) != 0 {
 		root := executable.llbDefinition
 		executable.llbDefinition = llb.Scratch()
@@ -380,6 +431,16 @@ func executeRunner(ctx context.Context, executable runnerExecutable, output *cor
 			{
 				Type:      bk.ExporterLocal,
 				OutputDir: outputDir,
+			},
+		}
+	} else if executable.ExportedFilesLocation != "" {
+		wc := gitioutil.WriteNopCloser(&tarBuffer)
+		opts.Exports = []bk.ExportEntry{
+			{
+				Type: bk.ExporterTar,
+				Output: func(m map[string]string) (io.WriteCloser, error) {
+					return wc, nil
+				},
 			},
 		}
 	}
@@ -409,16 +470,60 @@ func executeRunner(ctx context.Context, executable runnerExecutable, output *cor
 	if err != nil {
 		return errors.Wrap(err, "error marshalling llb definition")
 	}
-	err = executeLlbDefinition(ctx, bkClient, definition, opts)
+	err = executeLlbDefinition(ctx, executable.Name, bkClient, definition, opts)
 	if err != nil {
 		return err
 	}
 
-	exportedFiles := make([]string, 0, len(executable.ExportedFiles))
-	for _, v := range executable.ExportedFiles {
-		exportedFiles = append(exportedFiles, path.Join(outputDir, v))
+	if len(executable.ExportedFiles) != 0 {
+		exportedFiles := make([]string, 0, len(executable.ExportedFiles))
+		for _, v := range executable.ExportedFiles {
+			exportedFiles = append(exportedFiles, path.Join(outputDir, v))
+		}
+		defer chown_util.TryRectifyRootFiles(ctx, exportedFiles)
+	} else if executable.ExportedFilesLocation != "" {
+		tarMap, err := testutil.ReadTarToMap(tarBuffer.Bytes(), false)
+		if err != nil {
+			return errors.Wrap(err, "error reading tar")
+		}
+		exportedFilesContent, ok := tarMap[strings.TrimPrefix(executable.ExportedFilesLocation, "/")]
+		if !ok {
+			return errors.New("exported files location not found in tar")
+		}
+		var exportedFiles map[string]string
+		err = json.Unmarshal(exportedFilesContent.Data, &exportedFiles)
+		if err != nil {
+			return errors.Wrap(err, "error unmarshalling exported files")
+		}
+
+		for nameInContainer, nameInHost := range exportedFiles {
+			nameInContainerNoSlash := strings.TrimPrefix(nameInContainer, "/")
+			for fileName, file := range tarMap {
+				if file.Header.Typeflag == tar.TypeDir {
+					continue
+				}
+				if file.Data == nil {
+					continue
+				}
+				if !strings.HasPrefix(fileName, nameInContainerNoSlash) {
+					continue
+				}
+				fileName = strings.TrimPrefix(fileName, nameInContainerNoSlash)
+				fileName = strings.TrimPrefix(fileName, "/")
+				fileName = path.Join(nameInHost, fileName)
+				filePath := path.Join(outputDir, fileName)
+
+				err = os.MkdirAll(path.Dir(filePath), 0755)
+				if err != nil {
+					return errors.Wrap(err, "error creating directory")
+				}
+				err = ioutil.WriteFile(filePath, file.Data, 0644)
+				if err != nil {
+					return errors.Wrap(err, "error writing file")
+				}
+			}
+		}
 	}
-	defer chown_util.TryRectifyRootFiles(ctx, exportedFiles)
 
 	readBackFiles := make([]fetcher.FileDescription, 0, len(executable.ReadBackFiles))
 	for _, file := range executable.ReadBackFiles {
@@ -445,7 +550,7 @@ func executeRunner(ctx context.Context, executable runnerExecutable, output *cor
 	return nil
 }
 
-func executeLlbDefinition(ctx context.Context, bkClient *bk.Client, definition *llb.Definition, opts bk.SolveOpt) error {
+func executeLlbDefinition(ctx context.Context, name string, bkClient *bk.Client, definition *llb.Definition, opts bk.SolveOpt) error {
 	buildFunc := func(ctx context.Context, c bkgw.Client) (*bkgw.Result, error) {
 		sreq := bkgw.SolveRequest{
 			Definition: definition.ToPB(),
@@ -481,7 +586,7 @@ func executeLlbDefinition(ctx context.Context, bkClient *bk.Client, definition *
 			}
 		}()
 
-		err := buildkit_status.DisplaySolveStatus(ctx, "", nil, writer, buildCh)
+		err := buildkit_status.DisplaySolveStatus(ctx, name, nil, writer, buildCh)
 		if err != nil {
 			log.Ctx(ctx).Error().Err(err).Msg("error displaying buildkit status")
 		}

@@ -81,8 +81,8 @@ func DisplaySolveStatus(ctx context.Context, phase string, c console.Console, w 
 			if os.Getenv("PROGRESS_NO_TRUNC") == "0" {
 				fmt.Fprintf(w, "#%d %s\n", index, limitString(v.Name, 72))
 			} else {
-				fmt.Fprintf(w, "#%d %s\n", index, v.Name)
-				fmt.Fprintf(w, "#%d %s\n", index, v.Digest)
+				fmt.Fprintf(w, "%s - #%d %s\n", phase, index, v.Name)
+				fmt.Fprintf(w, "\"%s - #%d %s\n", phase, index, v.Digest)
 			}
 		}
 		statusPrintCb := func(v *client.Vertex, format string, a ...interface{}) {
