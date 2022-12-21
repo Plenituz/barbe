@@ -395,12 +395,6 @@ func buildLlbDefinition(ctx context.Context, runnerConfig runnerConfig) (runnerE
 	return executable, nil
 }
 
-type nopWriteCloser struct {
-	io.Writer
-}
-
-func (nopWriteCloser) Close() error { return nil }
-
 func executeRunner(ctx context.Context, executable runnerExecutable, output *core.ConcurrentConfigContainer) error {
 	//state_display.AddLogLine(state_display.FindActiveMajorStepWithMinorStepNamed("buildkit_runner"), "buildkit_runner", executable.Name)
 	maker := ctx.Value("maker").(*core.Maker)

@@ -427,7 +427,7 @@ type TemplateEngine interface {
 
 type Transformer interface {
 	Name() string
-	//Transform cannot edit the input container, it must return a new one with the changes
+	//Transform cannot edit the input container, and it must return a new config container with the new bags to create/modify
 	Transform(ctx context.Context, container ConfigContainer) (ConfigContainer, error)
 }
 

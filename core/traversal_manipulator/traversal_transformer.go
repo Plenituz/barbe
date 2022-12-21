@@ -24,7 +24,9 @@ func (t *TraversalManipulator) transformTraversals(ctx context.Context, data cor
 					if err != nil {
 						return errors.Wrap(err, "error extracting string value from traversal_transform value")
 					}
+					t.traversalTransformsMutex.Lock()
 					t.traversalTransforms[pair.Key] = strValue
+					t.traversalTransformsMutex.Unlock()
 				}
 			}
 		}
@@ -36,7 +38,7 @@ func (t *TraversalManipulator) transformTraversals(ctx context.Context, data cor
 		}
 		for name, group := range m {
 			for _, databag := range group {
-				changed, changedBag, err := transformerLoop(ctx, databag, t.traversalTransforms)
+				changed, changedBag, err := t.transformerLoop(ctx, databag)
 				if err != nil {
 					return errors.Wrapf(err, "error applying traversal_transform to databag '%s'", name)
 				}
@@ -53,10 +55,10 @@ func (t *TraversalManipulator) transformTraversals(ctx context.Context, data cor
 	return nil
 }
 
-func transformerLoop(ctx context.Context, databag core.DataBag, transformMap map[string]string) (changed bool, changedBag core.DataBag, e error) {
+func (t *TraversalManipulator) transformerLoop(ctx context.Context, databag core.DataBag) (changed bool, changedBag core.DataBag, e error) {
 	for i := 0; i < 100; i++ {
 		shouldStop := true
-		transformed, err := visitTransformers(ctx, core.TokenPtr(databag.Value), transformMap, func() {
+		transformed, err := t.visitTransformers(ctx, core.TokenPtr(databag.Value), func() {
 			changed = true
 			shouldStop = false
 		})
@@ -71,13 +73,13 @@ func transformerLoop(ctx context.Context, databag core.DataBag, transformMap map
 	return changed, databag, nil
 }
 
-func visitTransformers(ctx context.Context, root *core.SyntaxToken, transformMap map[string]string, counter func()) (*core.SyntaxToken, error) {
+func (t *TraversalManipulator) visitTransformers(ctx context.Context, root *core.SyntaxToken, counter func()) (*core.SyntaxToken, error) {
 	return core.Visit(ctx, root, func(token *core.SyntaxToken) (*core.SyntaxToken, error) {
 		switch token.Type {
 		//TODO maybe need to support relative traversal here?
 		// the simplifier makes it unnecessary for now
 		case core.TokenTypeScopeTraversal:
-			transformed, err := transformTraversal(token.Traversal, transformMap, counter)
+			transformed, err := t.transformTraversal(token.Traversal, counter)
 			if err != nil {
 				return nil, errors.Wrap(err, "error transforming traversal")
 			}
@@ -141,13 +143,15 @@ func stringToTraversal(str string) ([]core.Traverse, error) {
 	return traversal, nil
 }
 
-func transformTraversal(traversal []core.Traverse, transformMap map[string]string, counter func()) ([]core.Traverse, error) {
+func (t *TraversalManipulator) transformTraversal(traversal []core.Traverse, counter func()) ([]core.Traverse, error) {
+	t.traversalTransformsMutex.RLock()
+	defer t.traversalTransformsMutex.RUnlock()
 	for i := len(traversal) - 1; i >= 0; i-- {
 		traversalStr, err := traversalToString(traversal[:i+1])
 		if err != nil {
 			return nil, errors.Wrap(err, "error converting traversal to string")
 		}
-		if mappedValue, ok := transformMap[traversalStr]; ok {
+		if mappedValue, ok := t.traversalTransforms[traversalStr]; ok {
 			//fmt.Println(fmt.Sprintf("transforming traversal %s -> %s", traversalStr, mappedValue))
 			counter()
 			root, err := stringToTraversal(mappedValue)

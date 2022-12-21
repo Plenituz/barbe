@@ -16,7 +16,7 @@ import (
 func (maker *Maker) ApplyComponents(ctx context.Context, container *ConfigContainer) error {
 	for i := 0; i < maxComponentLoops; i++ {
 		beforeApply := container.Clone()
-		log.Ctx(ctx).Debug().Msgf("master, loop %d", i)
+		log.Ctx(ctx).Debug().Msgf("%s master, loop %d", maker.CurrentStep, i)
 		err := maker.applyComponentsLoop(ctx, container)
 		if err != nil {
 			return err
@@ -164,7 +164,7 @@ func (maker *Maker) ApplyComponent(ctx context.Context, file fetcher.FileDescrip
 		}
 
 		span = opentracing.GlobalTracer().StartSpan(path.Base(file.Name), opentracing.ChildOf(opentracing.SpanFromContext(ctx).Context()))
-		span.LogKV("command", maker.Command)
+		span.LogKV("step", maker.CurrentStep)
 		span.LogKV("input", string(b))
 		defer span.Finish()
 		ctx = opentracing.ContextWithSpan(ctx, span)
@@ -176,7 +176,7 @@ func (maker *Maker) ApplyComponent(ctx context.Context, file fetcher.FileDescrip
 		//	return ConfigContainer{}, errors.Wrap(err, "error marshalling input for trace")
 		//}
 		//trace.Log(traceCtx, "input", string(b))
-		//trace.Log(traceCtx, "command", ctx.Value("maker").(*Maker).Command)
+		//trace.Log(traceCtx, "command", ctx.Value("maker").(*Maker).CurrentStep)
 	}
 
 	log.Ctx(ctx).Debug().Msg("applying component '" + file.Name + "'")

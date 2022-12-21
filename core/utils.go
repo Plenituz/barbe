@@ -148,8 +148,8 @@ func TokensDeepEqual(a SyntaxToken, b SyntaxToken) bool {
 	}
 	switch a.Type {
 	default:
-		fmt.Println("unhandled token type: '" + a.Type + "'")
-		return false
+		//fmt.Println("unhandled token type: '" + a.Type + "'")
+		return true
 	case TokenTypeLiteralValue:
 		return reflect.DeepEqual(a.Value, b.Value)
 	case TokenTypeScopeTraversal:

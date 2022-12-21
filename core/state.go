@@ -171,6 +171,7 @@ func (s *StateHandler) AddPersister(persister StatePersister) error {
 	if err != nil {
 		return errors.Wrap(err, "error reading state from new persister")
 	}
+	//TODO merge states and write to persisters if needed
 	if newState == nil {
 		return nil
 	}

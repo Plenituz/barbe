@@ -100,6 +100,10 @@ func fetchRemoteFile(fileUrl string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("error fetching remote file at '%s', status '%s'", fileUrl, resp.Status)
+	}
 	return content, nil
 }
 

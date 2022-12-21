@@ -3,12 +3,16 @@ package traversal_manipulator
 import (
 	"barbe/core"
 	"context"
+	"sync"
 )
 
 type TraversalManipulator struct {
-	traversalTransforms map[string]string
-	traversalMaps       map[string]core.SyntaxToken
-	tokenMaps           []tokenMap
+	traversalTransformsMutex *sync.RWMutex
+	traversalTransforms      map[string]string
+	traversalMapsMutex       *sync.RWMutex
+	traversalMaps            map[string]core.SyntaxToken
+	tokenMapsMutex           *sync.RWMutex
+	tokenMaps                []tokenMap
 }
 
 type tokenMap struct {
@@ -18,9 +22,12 @@ type tokenMap struct {
 
 func NewTraversalManipulator() *TraversalManipulator {
 	return &TraversalManipulator{
-		traversalTransforms: map[string]string{},
-		traversalMaps:       map[string]core.SyntaxToken{},
-		tokenMaps:           []tokenMap{},
+		traversalTransforms:      map[string]string{},
+		traversalMaps:            map[string]core.SyntaxToken{},
+		tokenMaps:                []tokenMap{},
+		traversalTransformsMutex: &sync.RWMutex{},
+		traversalMapsMutex:       &sync.RWMutex{},
+		tokenMapsMutex:           &sync.RWMutex{},
 	}
 }
 

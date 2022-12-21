@@ -226,6 +226,7 @@ func makeMaker(command core.MakeCommand, dir string) *core.Maker {
 		traversal_manipulator.NewTraversalManipulator(),
 		aws_session_provider.AwsSessionProviderTransformer{},
 		gcp_token_provider.GcpTokenProviderTransformer{},
+		raw_file.RawFileFormatter{},
 		buildkit_runner.NewBuildkitRunner(),
 		import_component.NewComponentImporter(),
 	}

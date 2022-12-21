@@ -45,9 +45,9 @@ var generateCmd = &cobra.Command{
 		analytics.QueueEvent(ctx, analytics.AnalyticsEvent{
 			EventType: "ExecutionStart",
 			EventProperties: map[string]interface{}{
-				"Files":     fileNames,
-				"FileCount": len(allFiles),
-				"Command":   "generate",
+				"Files":       fileNames,
+				"FileCount":   len(allFiles),
+				"CurrentStep": "generate",
 			},
 		})
 

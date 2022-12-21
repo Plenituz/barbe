@@ -16,6 +16,14 @@ func (t RawFileFormatter) Name() string {
 }
 
 func (t RawFileFormatter) Format(ctx context.Context, data core.ConfigContainer) error {
+	return crawl(ctx, data)
+}
+
+func (t RawFileFormatter) Transform(ctx context.Context, container core.ConfigContainer) (core.ConfigContainer, error) {
+	return *core.NewConfigContainer(), crawl(ctx, container)
+}
+
+func crawl(ctx context.Context, data core.ConfigContainer) error {
 	for resourceType, m := range data.DataBags {
 		if resourceType != "raw_file" {
 			continue

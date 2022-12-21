@@ -2,7 +2,6 @@ package core
 
 import (
 	"barbe/core/fetcher"
-	"barbe/core/state_display"
 	"context"
 	"github.com/lightstep/lightstep-tracer-go"
 	"github.com/opentracing/opentracing-go"
@@ -13,6 +12,7 @@ import (
 )
 
 type MakeCommand = string
+type MakeLifecycleStep = string
 
 const (
 	MakeCommandGenerate = "generate"
@@ -20,8 +20,48 @@ const (
 	MakeCommandDestroy  = "destroy"
 )
 
+/*
+ Lifecycle steps:
+  	1. pre_generate
+	2. generate
+	3. post_generate
+	if command is generate, stop here
+
+	otherwise, if command is apply or destroy
+	4. pre_do
+
+	if command is apply
+	5a. pre_apply
+	6a. apply
+	7a. post_apply
+
+	if command is destroy
+	5b. pre_destroy
+	6b. destroy
+	7b. post_destroy
+
+	8. post_do
+*/
+const (
+	MakeLifecycleStepPreGenerate  = "pre_generate"
+	MakeLifecycleStepGenerate     = MakeCommandGenerate
+	MakeLifecycleStepPostGenerate = "post_generate"
+	//runs before the apply or destroy step
+	MakeLifecycleStepPreDo = "pre_do"
+	//runs before the apply step, after the pre-do step, if the command is apply
+	MakeLifecycleStepPreApply    = "pre_apply"
+	MakeLifecycleStepApply       = MakeCommandApply
+	MakeLifecycleStepPostApply   = "post_apply"
+	MakeLifecycleStepPreDestroy  = "pre_destroy"
+	MakeLifecycleStepDestroy     = MakeCommandDestroy
+	MakeLifecycleStepPostDestroy = "post_destroy"
+	//this runs after either post_apply or post_destroy
+	MakeLifecycleStepPostDo = "post_do"
+)
+
 type Maker struct {
 	Command      MakeCommand
+	CurrentStep  MakeLifecycleStep
 	OutputDir    string
 	Parsers      []Parser
 	Templaters   []TemplateEngine
@@ -76,7 +116,7 @@ func (maker *Maker) Make(ctx context.Context, inputFiles []fetcher.FileDescripti
 		ctx = opentracing.ContextWithSpan(ctx, span)
 	}
 
-	desiredCommand := maker.Command
+	maker.CurrentStep = MakeLifecycleStepPreGenerate
 	container := NewConfigContainer()
 	err := maker.ParseFiles(ctx, inputFiles, container)
 	if err != nil {
@@ -84,9 +124,7 @@ func (maker *Maker) Make(ctx context.Context, inputFiles []fetcher.FileDescripti
 	}
 
 	t := time.Now()
-	state_display.StartMajorStep("Fetch templates")
 	executable, err := maker.GetTemplates(ctx, container)
-	state_display.EndMajorStep("Fetch templates")
 	log.Ctx(ctx).Debug().Msgf("getting templates took: %s", time.Since(t))
 	if err != nil {
 		return container, errors.Wrap(err, "error getting templates")
@@ -102,22 +140,29 @@ func (maker *Maker) Make(ctx context.Context, inputFiles []fetcher.FileDescripti
 		return container, errors.Wrap(err, "error parsing files from manifest")
 	}
 
-	state_display.StartMajorStep("Pre-transform")
 	err = maker.TransformInPlace(ctx, container)
 	if err != nil {
 		return container, err
 	}
-	state_display.EndMajorStep("Pre-transform")
 
-	state_display.StartMajorStep("Applying components for " + MakeCommandGenerate)
-	maker.Command = MakeCommandGenerate
+	//this is pre_generate
 	err = maker.ApplyComponents(ctx, container)
 	if err != nil {
 		return container, err
 	}
-	state_display.EndMajorStep("Applying components " + MakeCommandGenerate)
 
-	state_display.StartMajorStep("Formatters")
+	maker.CurrentStep = MakeLifecycleStepGenerate
+	err = maker.ApplyComponents(ctx, container)
+	if err != nil {
+		return container, err
+	}
+
+	maker.CurrentStep = MakeLifecycleStepPostGenerate
+	err = maker.ApplyComponents(ctx, container)
+	if err != nil {
+		return container, err
+	}
+
 	for _, formatter := range maker.Formatters {
 		log.Ctx(ctx).Debug().Msgf("formatting %s", formatter.Name())
 		err := formatter.Format(ctx, *container)
@@ -125,18 +170,59 @@ func (maker *Maker) Make(ctx context.Context, inputFiles []fetcher.FileDescripti
 			return container, err
 		}
 	}
-	state_display.EndMajorStep("Formatters")
-	if desiredCommand == MakeCommandGenerate {
+	if maker.Command == MakeCommandGenerate {
 		return container, nil
 	}
 
-	state_display.StartMajorStep("Applying components for " + desiredCommand)
-	maker.Command = desiredCommand
+	maker.CurrentStep = MakeLifecycleStepPreDo
 	err = maker.ApplyComponents(ctx, container)
 	if err != nil {
 		return container, err
 	}
-	state_display.EndMajorStep("Applying components for " + desiredCommand)
+
+	switch maker.Command {
+	case MakeCommandApply:
+		maker.CurrentStep = MakeLifecycleStepPreApply
+		err = maker.ApplyComponents(ctx, container)
+		if err != nil {
+			return container, err
+		}
+		maker.CurrentStep = MakeLifecycleStepApply
+		err = maker.ApplyComponents(ctx, container)
+		if err != nil {
+			return container, err
+		}
+		maker.CurrentStep = MakeLifecycleStepPostApply
+		err = maker.ApplyComponents(ctx, container)
+		if err != nil {
+			return container, err
+		}
+
+	case MakeCommandDestroy:
+		maker.CurrentStep = MakeLifecycleStepPreDestroy
+		err = maker.ApplyComponents(ctx, container)
+		if err != nil {
+			return container, err
+		}
+		maker.CurrentStep = MakeLifecycleStepDestroy
+		err = maker.ApplyComponents(ctx, container)
+		if err != nil {
+			return container, err
+		}
+		maker.CurrentStep = MakeLifecycleStepPostDestroy
+		err = maker.ApplyComponents(ctx, container)
+		if err != nil {
+			return container, err
+		}
+	default:
+		return container, errors.New("unknown command '" + maker.Command + "'")
+	}
+
+	maker.CurrentStep = MakeLifecycleStepPostDo
+	err = maker.ApplyComponents(ctx, container)
+	if err != nil {
+		return container, err
+	}
 
 	return container, nil
 }

@@ -45,9 +45,9 @@ var destroyCmd = &cobra.Command{
 		analytics.QueueEvent(ctx, analytics.AnalyticsEvent{
 			EventType: "ExecutionStart",
 			EventProperties: map[string]interface{}{
-				"Files":     fileNames,
-				"FileCount": len(allFiles),
-				"Command":   "apply",
+				"Files":       fileNames,
+				"FileCount":   len(allFiles),
+				"CurrentStep": "apply",
 			},
 		})
 

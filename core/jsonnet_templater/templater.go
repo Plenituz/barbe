@@ -54,6 +54,7 @@ func createVm(ctx context.Context, maker *core.Maker, input core.ConfigContainer
 	vm.MaxStack = 100000
 	vm.ExtCode("barbe", Builtins)
 	vm.ExtVar("barbe_command", maker.Command)
+	vm.ExtVar("barbe_lifecycle_step", maker.CurrentStep)
 	vm.ExtVar("barbe_output_dir", ctx.Value("maker").(*core.Maker).OutputDir)
 	vm.ExtCode("env", env)
 	vm.ExtVar("barbe_selected_pipeline", "")
@@ -154,7 +155,7 @@ func executeJsonnet(ctx context.Context, maker *core.Maker, input core.ConfigCon
 					if err != nil {
 						return errors.Wrap(err, "failed to merge input with container")
 					}
-					log.Ctx(ctx).Debug().Msgf("executing '%s.%s' pipeline[%d][%d] (%d keys in input)", templateFile.Name, maker.Command, pipelineIndex, stepIndex, len(stepInput.DataBags))
+					log.Ctx(ctx).Debug().Msgf("executing '%s.%s' pipeline[%d][%d] (%d keys in input)", templateFile.Name, maker.CurrentStep, pipelineIndex, stepIndex, len(stepInput.DataBags))
 
 					//var traceCtx context.Context
 					//var task *trace.Task
@@ -165,7 +166,7 @@ func executeJsonnet(ctx context.Context, maker *core.Maker, input core.ConfigCon
 							return errors.Wrap(err, "failed to marshal input for trace")
 						}
 						span = opentracing.GlobalTracer().StartSpan(fmt.Sprintf("%s.pipeline[%d][%d]", path.Base(templateFile.Name), pipelineIndex, stepIndex), opentracing.ChildOf(opentracing.SpanFromContext(ctx).Context()))
-						span.LogKV("command", maker.Command)
+						span.LogKV("command", maker.CurrentStep)
 						span.LogKV("input", string(b))
 						defer span.Finish()
 						ctx = opentracing.ContextWithSpan(ctx, span)
@@ -176,7 +177,7 @@ func executeJsonnet(ctx context.Context, maker *core.Maker, input core.ConfigCon
 						//	return errors.Wrap(err, "failed to marshal input for trace")
 						//}
 						//trace.Log(traceCtx, "input", string(b))
-						//trace.Log(traceCtx, "command", ctx.Value("maker").(*core.Maker).Command)
+						//trace.Log(traceCtx, "command", ctx.Value("maker").(*core.Maker).CurrentStep)
 					}
 
 					err = populateStateAndContainerInVm(maker, vm, *stepInput)
@@ -195,7 +196,7 @@ func executeJsonnet(ctx context.Context, maker *core.Maker, input core.ConfigCon
 					if err != nil {
 						return errors.Wrap(err, "failed to unmarshal jsonnet output")
 					}
-					log.Ctx(ctx).Debug().Msgf("'%s.%s' pipeline[%d][%d] created %d keys", templateFile.Name, maker.Command, pipelineIndex, stepIndex, len(parsedResult.Pipelines.Databags))
+					log.Ctx(ctx).Debug().Msgf("'%s.%s' pipeline[%d][%d] created %d keys", templateFile.Name, maker.CurrentStep, pipelineIndex, stepIndex, len(parsedResult.Pipelines.Databags))
 
 					//transform stepInput + parsedResult.Pipelines.Databags
 					//add the result of transformation + parsedResult.Pipelines.Databags to output

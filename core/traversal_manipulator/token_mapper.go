@@ -19,12 +19,15 @@ func (t *TraversalManipulator) mapTokens(ctx context.Context, data core.ConfigCo
 				if databag.Value.Type != core.TokenTypeArrayConst {
 					return fmt.Errorf("token_map databag '%s[%d]' is not an array", name, i)
 				}
+				t.tokenMapsMutex.Lock()
 				for j, item := range databag.Value.ArrayConst {
 					parsed, err := parseMatchObj(ctx, item)
 					if err != nil {
+						t.tokenMapsMutex.Unlock()
 						return errors.Wrap(err, fmt.Sprintf("error parsing token_map databag at '%s[%d][%d]'", name, i, j))
 					}
 					t.tokenMaps = append(t.tokenMaps, parsed)
+					t.tokenMapsMutex.Unlock()
 				}
 			}
 		}
@@ -36,7 +39,7 @@ func (t *TraversalManipulator) mapTokens(ctx context.Context, data core.ConfigCo
 		}
 		for name, group := range m {
 			for i, databag := range group {
-				changed, changedBag, err := tokenMapperLoop(ctx, databag, t.tokenMaps)
+				changed, changedBag, err := t.tokenMapperLoop(ctx, databag)
 				if err != nil {
 					return errors.Wrapf(err, "error applying token_map to databag '%s[%d]'", name, i)
 				}
@@ -80,10 +83,10 @@ func parseMatchObj(ctx context.Context, token core.SyntaxToken) (tokenMap, error
 	return result, nil
 }
 
-func tokenMapperLoop(ctx context.Context, databag core.DataBag, transformMaps []tokenMap) (changed bool, changedBag core.DataBag, e error) {
+func (t *TraversalManipulator) tokenMapperLoop(ctx context.Context, databag core.DataBag) (changed bool, changedBag core.DataBag, e error) {
 	for i := 0; i < 100; i++ {
 		shouldStop := true
-		transformed, err := visitTokenMappers(ctx, core.TokenPtr(databag.Value), transformMaps, func() {
+		transformed, err := t.visitTokenMappers(ctx, core.TokenPtr(databag.Value), func() {
 			changed = true
 			shouldStop = false
 		})
@@ -98,9 +101,11 @@ func tokenMapperLoop(ctx context.Context, databag core.DataBag, transformMaps []
 	return changed, databag, nil
 }
 
-func visitTokenMappers(ctx context.Context, root *core.SyntaxToken, transformMap []tokenMap, counter func()) (*core.SyntaxToken, error) {
+func (t *TraversalManipulator) visitTokenMappers(ctx context.Context, root *core.SyntaxToken, counter func()) (*core.SyntaxToken, error) {
 	return core.Visit(ctx, root, func(token *core.SyntaxToken) (*core.SyntaxToken, error) {
-		for _, transform := range transformMap {
+		t.tokenMapsMutex.RLock()
+		defer t.tokenMapsMutex.RUnlock()
+		for _, transform := range t.tokenMaps {
 			if !reflect.DeepEqual(*token, transform.Match) {
 				continue
 			}
