@@ -179,6 +179,9 @@ func (maker *Maker) ApplyComponent(ctx context.Context, file fetcher.FileDescrip
 		//trace.Log(traceCtx, "command", ctx.Value("maker").(*Maker).CurrentStep)
 	}
 
+	//state_display.GlobalState.StartMinorStep(maker.CurrentStep, file.Name)
+	//defer state_display.GlobalState.EndMinorStep(maker.CurrentStep, file.Name)
+
 	log.Ctx(ctx).Debug().Msg("applying component '" + file.Name + "'")
 	output := NewConfigContainer()
 	for _, engine := range maker.Templaters {

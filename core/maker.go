@@ -2,6 +2,7 @@ package core
 
 import (
 	"barbe/core/fetcher"
+	"barbe/core/state_display"
 	"context"
 	"github.com/lightstep/lightstep-tracer-go"
 	"github.com/opentracing/opentracing-go"
@@ -145,23 +146,29 @@ func (maker *Maker) Make(ctx context.Context, inputFiles []fetcher.FileDescripti
 		return container, err
 	}
 
+	state_display.GlobalState.StartMajorStep("pre_generate")
 	//this is pre_generate
 	err = maker.ApplyComponents(ctx, container)
 	if err != nil {
 		return container, err
 	}
+	state_display.GlobalState.EndMajorStep("pre_generate")
 
+	state_display.GlobalState.StartMajorStep("generate")
 	maker.CurrentStep = MakeLifecycleStepGenerate
 	err = maker.ApplyComponents(ctx, container)
 	if err != nil {
 		return container, err
 	}
+	state_display.GlobalState.EndMajorStep("generate")
 
+	state_display.GlobalState.StartMajorStep("post_generate")
 	maker.CurrentStep = MakeLifecycleStepPostGenerate
 	err = maker.ApplyComponents(ctx, container)
 	if err != nil {
 		return container, err
 	}
+	state_display.GlobalState.EndMajorStep("post_generate")
 
 	for _, formatter := range maker.Formatters {
 		log.Ctx(ctx).Debug().Msgf("formatting %s", formatter.Name())
@@ -174,55 +181,75 @@ func (maker *Maker) Make(ctx context.Context, inputFiles []fetcher.FileDescripti
 		return container, nil
 	}
 
+	state_display.GlobalState.StartMajorStep("pre_do")
 	maker.CurrentStep = MakeLifecycleStepPreDo
 	err = maker.ApplyComponents(ctx, container)
 	if err != nil {
 		return container, err
 	}
+	state_display.GlobalState.EndMajorStep("pre_do")
 
 	switch maker.Command {
 	case MakeCommandApply:
+		state_display.GlobalState.StartMajorStep("pre_apply")
 		maker.CurrentStep = MakeLifecycleStepPreApply
 		err = maker.ApplyComponents(ctx, container)
 		if err != nil {
 			return container, err
 		}
+		state_display.GlobalState.EndMajorStep("pre_apply")
+
+		state_display.GlobalState.StartMajorStep("apply")
 		maker.CurrentStep = MakeLifecycleStepApply
 		err = maker.ApplyComponents(ctx, container)
 		if err != nil {
 			return container, err
 		}
+		state_display.GlobalState.EndMajorStep("apply")
+
+		state_display.GlobalState.StartMajorStep("post_apply")
 		maker.CurrentStep = MakeLifecycleStepPostApply
 		err = maker.ApplyComponents(ctx, container)
 		if err != nil {
 			return container, err
 		}
+		state_display.GlobalState.EndMajorStep("post_apply")
 
 	case MakeCommandDestroy:
+		state_display.GlobalState.StartMajorStep("pre_destroy")
 		maker.CurrentStep = MakeLifecycleStepPreDestroy
 		err = maker.ApplyComponents(ctx, container)
 		if err != nil {
 			return container, err
 		}
+		state_display.GlobalState.EndMajorStep("pre_destroy")
+
+		state_display.GlobalState.StartMajorStep("destroy")
 		maker.CurrentStep = MakeLifecycleStepDestroy
 		err = maker.ApplyComponents(ctx, container)
 		if err != nil {
 			return container, err
 		}
+		state_display.GlobalState.EndMajorStep("destroy")
+
+		state_display.GlobalState.StartMajorStep("post_destroy")
 		maker.CurrentStep = MakeLifecycleStepPostDestroy
 		err = maker.ApplyComponents(ctx, container)
 		if err != nil {
 			return container, err
 		}
+		state_display.GlobalState.EndMajorStep("post_destroy")
 	default:
 		return container, errors.New("unknown command '" + maker.Command + "'")
 	}
 
+	state_display.GlobalState.StartMajorStep("post_do")
 	maker.CurrentStep = MakeLifecycleStepPostDo
 	err = maker.ApplyComponents(ctx, container)
 	if err != nil {
 		return container, err
 	}
+	state_display.GlobalState.EndMajorStep("post_do")
 
 	return container, nil
 }

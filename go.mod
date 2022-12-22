@@ -18,6 +18,7 @@ require (
 	github.com/gofrs/flock v0.8.1
 	github.com/google/go-jsonnet v0.18.0
 	github.com/google/uuid v1.3.0
+	github.com/gosuri/uilive v0.0.4
 	github.com/hashicorp/hcl/v2 v2.14.0
 	github.com/lightstep/lightstep-tracer-go v0.26.0
 	github.com/mattn/go-colorable v0.1.13
@@ -96,7 +97,7 @@ require (
 	github.com/pelletier/go-toml v1.9.5 // indirect
 	github.com/pelletier/go-toml/v2 v2.0.5 // indirect
 	github.com/protocolbuffers/txtpbfmt v0.0.0-20220608084003-fc78c767cd6a // indirect
-	github.com/rivo/uniseg v0.2.0 // indirect
+	github.com/rivo/uniseg v0.4.2 // indirect
 	github.com/sergi/go-diff v1.2.0 // indirect
 	github.com/sirupsen/logrus v1.9.0 // indirect
 	github.com/spf13/afero v1.8.2 // indirect

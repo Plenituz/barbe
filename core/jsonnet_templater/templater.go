@@ -41,15 +41,15 @@ type parsedPipelineItem struct {
 	Databags []sugarBag
 }
 
-func createVm(ctx context.Context, maker *core.Maker, input core.ConfigContainer) (*jsonnet.VM, error) {
+func createVm(ctx context.Context, maker *core.Maker, input core.ConfigContainer) (*jsonnet.VM, io.Closer, error) {
 	env, err := envMap()
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to marshal env map")
+		return nil, nil, errors.Wrap(err, "failed to marshal env map")
 	}
 	vm := jsonnet.MakeVM()
 	err = populateStateAndContainerInVm(maker, vm, input)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to populate container in vm")
+		return nil, nil, errors.Wrap(err, "failed to populate container in vm")
 	}
 	vm.MaxStack = 100000
 	vm.ExtCode("barbe", Builtins)
@@ -98,7 +98,7 @@ func createVm(ctx context.Context, maker *core.Maker, input core.ConfigContainer
 		}
 	}()
 	vm.SetTraceOut(traceWriter)
-	return vm, nil
+	return vm, traceWriter, nil
 }
 
 func populateStateAndContainerInVm(maker *core.Maker, vm *jsonnet.VM, container core.ConfigContainer) error {
@@ -118,10 +118,11 @@ func populateStateAndContainerInVm(maker *core.Maker, vm *jsonnet.VM, container 
 }
 
 func executeJsonnet(ctx context.Context, maker *core.Maker, input core.ConfigContainer, output *core.ConfigContainer, templateFile fetcher.FileDescription) error {
-	vm, err := createVm(ctx, maker, input)
+	vm, closer, err := createVm(ctx, maker, input)
 	if err != nil {
 		return errors.Wrap(err, "failed to create vm")
 	}
+	defer closer.Close()
 	node, err := jsonnet.SnippetToAST(templateFile.Name, string(templateFile.Content))
 	if err != nil {
 		return errors.Wrap(err, "failed to parse jsonnet template")

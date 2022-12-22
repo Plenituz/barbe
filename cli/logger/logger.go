@@ -12,7 +12,7 @@ import (
 	"golang.org/x/term"
 )
 
-func New() zerolog.Logger {
+func New() (zerolog.Logger, func()) {
 	level := viper.GetString("log-level")
 	lvl, err := zerolog.ParseLevel(level)
 	if err != nil {
@@ -30,10 +30,11 @@ func New() zerolog.Logger {
 			logger = logger.Output(&PlainOutput{Out: colorable.NewColorableStderr()})
 		} else {
 			logger = logger.Output(NewFancyOutput())
-			StartFancyDisplay(logger)
+			closer := StartFancyDisplay(logger)
+			return logger, closer
 		}
 	}
-	return logger
+	return logger, func() {}
 }
 
 func jsonLogs() bool {

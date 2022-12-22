@@ -34,7 +34,7 @@ func ReadAllFilesMatching(ctx context.Context, globExprs []string) ([]fetcher.Fi
 	for _, globExpr := range globExprs {
 		matches, err := glob(globExpr)
 		if err != nil {
-			log.Ctx(ctx).Fatal().Err(err).Msg("glob matching failed")
+			return nil, errors.Wrapf(err, "failed to glob %s", globExpr)
 		}
 		for _, match := range matches {
 			fileContent, err := os.ReadFile(match)
@@ -120,7 +120,7 @@ func IterateDirectories(ctx context.Context, command core.MakeCommand, allFiles 
 
 			err := os.MkdirAll(maker.OutputDir, 0755)
 			if err != nil {
-				log.Ctx(innerCtx).Fatal().Err(err).Msg("failed to create output directory")
+				return errors.Wrapf(err, "failed to create output dir %s", maker.OutputDir)
 			}
 			defer chown_util.TryRectifyRootFiles(innerCtx, []string{maker.OutputDir})
 

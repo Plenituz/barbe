@@ -1,17 +1,25 @@
 package state_display
 
 import (
+	"sync"
 	"time"
 )
 
-var OnStateDisplayChanged = func(stateDisplay StateDisplay) {}
-var GlobalState = StateDisplay{}
-
-var majorStepIndex = map[string]int{}
-var minorStepIndex = map[string]map[string]int{}
+var GlobalState = StateDisplay{
+	mutex:                 &sync.Mutex{},
+	majorStepIndex:        map[string]int{},
+	minorStepIndex:        map[string]map[string]int{},
+	OnStateDisplayChanged: func(stateDisplay StateDisplay) {},
+}
 
 type StateDisplay struct {
-	MajorsSteps []MajorStep
+	mutex          *sync.Mutex
+	majorStepIndex map[string]int
+	minorStepIndex map[string]map[string]int
+
+	MajorsSteps           []MajorStep
+	Logs                  []string
+	OnStateDisplayChanged func(stateDisplay StateDisplay)
 }
 
 type StepStatus = string
@@ -34,79 +42,107 @@ type MinorStep struct {
 	StartedAt time.Time
 	EndedAt   time.Time
 	Status    StepStatus
+	MaxLogs   int
 	LogLines  []string
 }
 
-func StartMajorStep(name string) {
-	majorStepIndex[name] = len(GlobalState.MajorsSteps)
-	GlobalState.MajorsSteps = append(GlobalState.MajorsSteps, MajorStep{
+func (s *StateDisplay) StartMajorStep(name string) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	s.majorStepIndex[name] = len(s.MajorsSteps)
+	s.MajorsSteps = append(s.MajorsSteps, MajorStep{
 		Name:      name,
 		StartedAt: time.Now(),
 		Status:    StepStatusPending,
 	})
-	if OnStateDisplayChanged != nil {
-		OnStateDisplayChanged(GlobalState)
+	if s.OnStateDisplayChanged != nil {
+		s.OnStateDisplayChanged(*s)
 	}
 }
 
-func EndMajorStep(name string) {
-	majorStep := GlobalState.MajorsSteps[majorStepIndex[name]]
+func (s *StateDisplay) EndMajorStep(name string) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	majorStep := s.MajorsSteps[s.majorStepIndex[name]]
 	majorStep.EndedAt = time.Now()
 	majorStep.Status = StepStatusDone
-	GlobalState.MajorsSteps[majorStepIndex[name]] = majorStep
-	delete(majorStepIndex, name)
+	s.MajorsSteps[s.majorStepIndex[name]] = majorStep
+	delete(s.majorStepIndex, name)
 
-	if OnStateDisplayChanged != nil {
-		OnStateDisplayChanged(GlobalState)
+	if s.OnStateDisplayChanged != nil {
+		s.OnStateDisplayChanged(*s)
 	}
 }
 
-func StartMinorStep(parentName string, name string) {
-	majorStep := GlobalState.MajorsSteps[majorStepIndex[parentName]]
-	if minorStepIndex[parentName] == nil {
-		minorStepIndex[parentName] = map[string]int{}
+func (s *StateDisplay) StartMinorStep(parentName string, name string) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	majorStep := s.MajorsSteps[s.majorStepIndex[parentName]]
+	if s.minorStepIndex[parentName] == nil {
+		s.minorStepIndex[parentName] = map[string]int{}
 	}
-	minorStepIndex[parentName][name] = len(majorStep.MinorSteps)
+	s.minorStepIndex[parentName][name] = len(majorStep.MinorSteps)
 	majorStep.MinorSteps = append(majorStep.MinorSteps, MinorStep{
 		Name:      name,
 		StartedAt: time.Now(),
 		Status:    StepStatusPending,
+		MaxLogs:   10,
 	})
-	GlobalState.MajorsSteps[majorStepIndex[parentName]] = majorStep
+	s.MajorsSteps[s.majorStepIndex[parentName]] = majorStep
 
-	if OnStateDisplayChanged != nil {
-		OnStateDisplayChanged(GlobalState)
+	if s.OnStateDisplayChanged != nil {
+		s.OnStateDisplayChanged(*s)
 	}
 }
 
-func EndMinorStep(parentName string, name string) {
-	majorStep := GlobalState.MajorsSteps[majorStepIndex[parentName]]
-	minorStep := majorStep.MinorSteps[minorStepIndex[parentName][name]]
+func (s *StateDisplay) EndMinorStep(parentName string, name string) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	majorStep := s.MajorsSteps[s.majorStepIndex[parentName]]
+	minorStep := majorStep.MinorSteps[s.minorStepIndex[parentName][name]]
 	minorStep.EndedAt = time.Now()
 	minorStep.Status = StepStatusDone
-	majorStep.MinorSteps[minorStepIndex[parentName][name]] = minorStep
-	delete(minorStepIndex[parentName], name)
-	GlobalState.MajorsSteps[majorStepIndex[parentName]] = majorStep
+	majorStep.MinorSteps[s.minorStepIndex[parentName][name]] = minorStep
+	delete(s.minorStepIndex[parentName], name)
+	s.MajorsSteps[s.majorStepIndex[parentName]] = majorStep
 
-	if OnStateDisplayChanged != nil {
-		OnStateDisplayChanged(GlobalState)
+	if s.OnStateDisplayChanged != nil {
+		s.OnStateDisplayChanged(*s)
 	}
 }
 
-func AddLogLine(parentName string, name string, line string) {
-	majorStep := GlobalState.MajorsSteps[majorStepIndex[parentName]]
-	minorStep := majorStep.MinorSteps[minorStepIndex[parentName][name]]
+func (s *StateDisplay) AddTopLevelLogLine(line string) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	s.Logs = append(s.Logs, line)
+
+	if s.OnStateDisplayChanged != nil {
+		s.OnStateDisplayChanged(*s)
+	}
+}
+
+func (s *StateDisplay) AddLogLine(parentName string, name string, line string) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	majorStep := s.MajorsSteps[s.majorStepIndex[parentName]]
+	minorStep := majorStep.MinorSteps[s.minorStepIndex[parentName][name]]
 	minorStep.LogLines = append(minorStep.LogLines, line)
-	majorStep.MinorSteps[minorStepIndex[parentName][name]] = minorStep
-	GlobalState.MajorsSteps[majorStepIndex[parentName]] = majorStep
+	if len(minorStep.LogLines) >= minorStep.MaxLogs {
+		minorStep.LogLines = minorStep.LogLines[1:]
+	}
 
-	if OnStateDisplayChanged != nil {
-		OnStateDisplayChanged(GlobalState)
+	majorStep.MinorSteps[s.minorStepIndex[parentName][name]] = minorStep
+	s.MajorsSteps[s.majorStepIndex[parentName]] = majorStep
+
+	if s.OnStateDisplayChanged != nil {
+		s.OnStateDisplayChanged(*s)
 	}
 }
 
-func FindActiveMajorStepWithMinorStepNamed(name string) (parentName string) {
-	for parentName, minorStepIndex := range minorStepIndex {
+func (s *StateDisplay) FindActiveMajorStepWithMinorStepNamed(name string) (parentName string) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	for parentName, minorStepIndex := range s.minorStepIndex {
 		if _, ok := minorStepIndex[name]; ok {
 			return parentName
 		}

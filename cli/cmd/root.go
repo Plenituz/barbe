@@ -42,7 +42,8 @@ func init() {
 func Execute() {
 	defer analytics.Flush()
 	if err := rootCmd.Execute(); err != nil {
-		lg := logger.New()
-		lg.Fatal().Err(err).Msg("failed to execute command")
+		lg, closer := logger.New()
+		defer closer()
+		lg.Error().Err(err).Msg("failed to execute command")
 	}
 }

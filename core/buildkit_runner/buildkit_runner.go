@@ -8,6 +8,7 @@ import (
 	"barbe/core/buildkit_runner/socketprovider"
 	"barbe/core/chown_util"
 	"barbe/core/fetcher"
+	"barbe/core/state_display"
 	"bufio"
 	"bytes"
 	"context"
@@ -399,6 +400,8 @@ func executeRunner(ctx context.Context, executable runnerExecutable, output *cor
 	//state_display.AddLogLine(state_display.FindActiveMajorStepWithMinorStepNamed("buildkit_runner"), "buildkit_runner", executable.Name)
 	maker := ctx.Value("maker").(*core.Maker)
 	outputDir := maker.OutputDir
+	state_display.GlobalState.StartMinorStep(maker.CurrentStep, executable.Name)
+	defer state_display.GlobalState.EndMinorStep(maker.CurrentStep, executable.Name)
 
 	opts := bk.SolveOpt{
 		LocalDirs: map[string]string{
@@ -464,7 +467,10 @@ func executeRunner(ctx context.Context, executable runnerExecutable, output *cor
 	if err != nil {
 		return errors.Wrap(err, "error marshalling llb definition")
 	}
-	err = executeLlbDefinition(ctx, executable.Name, bkClient, definition, opts)
+
+	err = executeLlbDefinition(ctx, executable.Name, func(s string) {
+		state_display.GlobalState.AddLogLine(maker.CurrentStep, executable.Name, s)
+	}, bkClient, definition, opts)
 	if err != nil {
 		return err
 	}
@@ -544,7 +550,7 @@ func executeRunner(ctx context.Context, executable runnerExecutable, output *cor
 	return nil
 }
 
-func executeLlbDefinition(ctx context.Context, name string, bkClient *bk.Client, definition *llb.Definition, opts bk.SolveOpt) error {
+func executeLlbDefinition(ctx context.Context, name string, logger func(logLine string), bkClient *bk.Client, definition *llb.Definition, opts bk.SolveOpt) error {
 	buildFunc := func(ctx context.Context, c bkgw.Client) (*bkgw.Result, error) {
 		sreq := bkgw.SolveRequest{
 			Definition: definition.ToPB(),
@@ -575,7 +581,8 @@ func executeLlbDefinition(ctx context.Context, name string, bkClient *bk.Client,
 			for scanner.Scan() {
 				line := scanner.Text()
 				if line != "" {
-					log.Ctx(ctx).Debug().Msg(line)
+					logger(line)
+					//log.Ctx(ctx).Debug().Msg(line)
 				}
 			}
 		}()

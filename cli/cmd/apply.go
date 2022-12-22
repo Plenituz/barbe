@@ -8,6 +8,7 @@ import (
 	"barbe/core/fetcher"
 	"context"
 	"encoding/json"
+	"github.com/pkg/errors"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -25,7 +26,8 @@ var applyCmd = &cobra.Command{
 			panic(err)
 		}
 
-		lg := logger.New()
+		lg, closer := logger.New()
+		defer closer()
 		ctx := lg.WithContext(cmd.Context())
 
 		if len(args) == 0 {
@@ -35,7 +37,8 @@ var applyCmd = &cobra.Command{
 
 		allFiles, err := cliutils.ReadAllFilesMatching(ctx, args)
 		if err != nil {
-			lg.Fatal().Err(err).Msg("failed to read files")
+			lg.Error().Err(err).Msg("failed to read files")
+			return
 		}
 
 		fileNames := make([]string, 0, len(allFiles))
@@ -54,7 +57,7 @@ var applyCmd = &cobra.Command{
 		err = cliutils.IterateDirectories(ctx, core.MakeCommandApply, allFiles, func(files []fetcher.FileDescription, ctx context.Context, maker *core.Maker) error {
 			container, err := maker.Make(ctx, files)
 			if err != nil {
-				log.Ctx(ctx).Fatal().Err(err).Msg("generation failed")
+				return errors.Wrap(err, "generation failed")
 			}
 			if viper.GetBool("debug-bags") {
 				b, err := json.MarshalIndent(container, "", "  ")
@@ -78,7 +81,8 @@ var applyCmd = &cobra.Command{
 					"Error": err.Error(),
 				},
 			})
-			lg.Fatal().Err(err).Msg("")
+			lg.Error().Err(err).Msg("")
+			return
 		}
 		analytics.QueueEvent(ctx, analytics.AnalyticsEvent{
 			EventType: "ExecutionEnd",
