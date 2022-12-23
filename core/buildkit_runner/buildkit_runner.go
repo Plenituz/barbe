@@ -77,7 +77,9 @@ func (t *BuildkitRunner) Transform(ctx context.Context, data core.ConfigContaine
 				if err != nil {
 					return core.ConfigContainer{}, errors.Wrap(err, "error building llb definition")
 				}
-				executable.Name = databag.Name
+				if executable.Name == "" {
+					executable.Name = databag.Name
+				}
 				executables = append(executables, executable)
 			}
 		}
@@ -104,6 +106,7 @@ func (t *BuildkitRunner) Transform(ctx context.Context, data core.ConfigContaine
 
 type runnerConfig struct {
 	Message               string
+	DisplayName           string
 	RequireConfirmation   bool
 	ExportedFiles         map[string]string
 	ExportedFilesLocation string
@@ -204,6 +207,16 @@ func parseRunnerConfig(ctx context.Context, objConst []core.ObjectConstItem) (ru
 				output.Message += "\n"
 			}
 			output.Message += tmp
+		}
+	}
+	displayNameToken := core.GetObjectKeyValues("display_name", objConst)
+	if len(displayNameToken) != 0 {
+		for _, token := range displayNameToken {
+			tmp, err := core.ExtractAsStringValue(token)
+			if err != nil {
+				log.Ctx(ctx).Warn().Msgf("error extracting display_name value on buildkit_run_in_container")
+			}
+			output.DisplayName = tmp
 		}
 	}
 
@@ -345,6 +358,7 @@ func parseRunnerConfig(ctx context.Context, objConst []core.ObjectConstItem) (ru
 
 func buildLlbDefinition(ctx context.Context, runnerConfig runnerConfig) (runnerExecutable, error) {
 	executable := runnerExecutable{
+		Name:                  runnerConfig.DisplayName,
 		ExportedFiles:         runnerConfig.ExportedFiles,
 		Message:               runnerConfig.Message,
 		RequireConfirmation:   runnerConfig.RequireConfirmation,
@@ -469,6 +483,7 @@ func executeRunner(ctx context.Context, executable runnerExecutable, output *cor
 	}
 
 	err = executeLlbDefinition(ctx, executable.Name, func(s string) {
+		log.Ctx(ctx).Debug().Msg(s)
 		state_display.GlobalState.AddLogLine(maker.CurrentStep, executable.Name, s)
 	}, bkClient, definition, opts)
 	if err != nil {
@@ -582,7 +597,6 @@ func executeLlbDefinition(ctx context.Context, name string, logger func(logLine 
 				line := scanner.Text()
 				if line != "" {
 					logger(line)
-					//log.Ctx(ctx).Debug().Msg(line)
 				}
 			}
 		}()

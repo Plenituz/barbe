@@ -19,6 +19,7 @@ func NewFancyOutput() *FancyOutput {
 
 func (f FancyOutput) Write(p []byte) (n int, err error) {
 	var event struct {
+		Level   string `json:"level"`
 		Message string `json:"message"`
 		Error   string `json:"error"`
 	}
@@ -27,15 +28,22 @@ func (f FancyOutput) Write(p []byte) (n int, err error) {
 		fmt.Println("error decoding event", err)
 		return 0, fmt.Errorf("cannot decode event: %s", err)
 	}
+	style := logStyle
+	text := string(p)
+
 	if event.Message != "" {
-		state_display.GlobalState.AddTopLevelLogLine(event.Message)
+		text = event.Message
 	}
 	if event.Error != "" {
-		state_display.GlobalState.AddTopLevelLogLine(event.Error)
+		text = event.Error
 	}
-	if event.Message == "" && event.Error == "" {
-		state_display.GlobalState.AddTopLevelLogLine(string(p))
+	switch l, _ := zerolog.ParseLevel(event.Level); l {
+	case zerolog.WarnLevel:
+		style = warnStyle
+	case zerolog.ErrorLevel, zerolog.FatalLevel, zerolog.PanicLevel:
+		style = errStyle
 	}
+	state_display.GlobalState.AddTopLevelLogLine(style.Render(text))
 	return len(p), nil
 }
 
@@ -64,12 +72,16 @@ var (
 
 	logStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#3C3C3C"))
+	errStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#D50000"))
+	warnStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#E2B603"))
 )
 
 func viewLogs(logs []string) string {
 	var result string
 	for i, line := range logs {
-		result += logStyle.Render(line)
+		result += line
 		if i < len(logs)-1 {
 			result += "\n"
 		}
