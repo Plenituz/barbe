@@ -156,7 +156,7 @@ func executeJsonnet(ctx context.Context, maker *core.Maker, input core.ConfigCon
 					if err != nil {
 						return errors.Wrap(err, "failed to merge input with container")
 					}
-					log.Ctx(ctx).Debug().Msgf("executing '%s.%s' pipeline[%d][%d] (%d keys in input)", templateFile.Name, maker.CurrentStep, pipelineIndex, stepIndex, len(stepInput.DataBags))
+					//log.Ctx(ctx).Debug().Msgf("executing '%s.%s' pipeline[%d][%d] (%d keys in input)", templateFile.Name, maker.CurrentStep, pipelineIndex, stepIndex, len(stepInput.DataBags))
 
 					//var traceCtx context.Context
 					//var task *trace.Task
@@ -197,7 +197,9 @@ func executeJsonnet(ctx context.Context, maker *core.Maker, input core.ConfigCon
 					if err != nil {
 						return errors.Wrap(err, "failed to unmarshal jsonnet output")
 					}
-					log.Ctx(ctx).Debug().Msgf("'%s.%s' pipeline[%d][%d] created %d keys", templateFile.Name, maker.CurrentStep, pipelineIndex, stepIndex, len(parsedResult.Pipelines.Databags))
+					if len(parsedResult.Pipelines.Databags) > 0 {
+						log.Ctx(ctx).Debug().Msgf("'%s.%s' pipeline[%d][%d] created %d keys", templateFile.Name, maker.CurrentStep, pipelineIndex, stepIndex, len(parsedResult.Pipelines.Databags))
+					}
 
 					//transform stepInput + parsedResult.Pipelines.Databags
 					//add the result of transformation + parsedResult.Pipelines.Databags to output

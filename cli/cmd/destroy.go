@@ -81,7 +81,7 @@ var destroyCmd = &cobra.Command{
 					"Error": err.Error(),
 				},
 			})
-			lg.Error().Err(err).Msg("")
+			log.Ctx(ctx).Error().Err(err).Msg("")
 			return
 		}
 		analytics.QueueEvent(ctx, analytics.AnalyticsEvent{

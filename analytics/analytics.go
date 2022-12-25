@@ -115,6 +115,7 @@ func Flush() {
 }
 
 func analyticsDisabled() bool {
+	return true
 	return os.Getenv("BARBE_DISABLE_ANALYTICS") != "" || os.Getenv("DO_NOT_TRACK") != ""
 }
 

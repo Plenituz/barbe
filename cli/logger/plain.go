@@ -85,10 +85,7 @@ func formatTimestamp(event map[string]interface{}) string {
 }
 
 func formatMessage(event map[string]interface{}) string {
-	message, ok := event[zerolog.MessageFieldName].(string)
-	if !ok {
-		return ""
-	}
+	message, _ := event[zerolog.MessageFieldName].(string)
 	message = strings.TrimSpace(message)
 
 	if err, ok := event[zerolog.ErrorFieldName].(string); ok && err != "" {

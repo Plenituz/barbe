@@ -356,6 +356,8 @@ func parseRunnerConfig(ctx context.Context, objConst []core.ObjectConstItem) (ru
 	return output, nil
 }
 
+var dockerfile2LLBMutex = sync.Mutex{}
+
 func buildLlbDefinition(ctx context.Context, runnerConfig runnerConfig) (runnerExecutable, error) {
 	executable := runnerExecutable{
 		Name:                  runnerConfig.DisplayName,
@@ -382,7 +384,23 @@ func buildLlbDefinition(ctx context.Context, runnerConfig runnerConfig) (runnerE
 		if runnerConfig.NoCache {
 			opts.IgnoreCache = []string{}
 		}
+		//unsure why but dockerfile2llb is not thread safe, it seems to re-use an image resolver cache?
+		/*
+			fatal error: concurrent map writes
+
+			goroutine 85 [running]:
+			runtime.throw({0x1561074?, 0x1462c00?})
+			        /usr/local/go/src/runtime/panic.go:992 +0x71 fp=0xc0025aef38 sp=0xc0025aef08 pc=0x434a11
+			runtime.mapassign_faststr(0x1386d40, 0xc0057096b0, {0xc00136c000, 0x2b})
+			        /usr/local/go/src/runtime/map_faststr.go:295 +0x38b fp=0xc0025aefa0 sp=0xc0025aef38 pc=0x41328b
+			github.com/moby/buildkit/client/llb/imagemetaresolver.(*imageMetaResolver).ResolveImageConfig(0xc0007e3640, {0x192d988, 0xc0007e3680}, {0xc001a6c1c0, 0x20}, {0xc001107180, {0x154c3a2, 0x7}, {0xc001a6a140, 0x3d}})
+			        /home/dorian/go/pkg/mod/github.com/moby/buildkit@v0.10.4/client/llb/imagemetaresolver/resolver.go:98 +0x2e8 fp=0xc0025af118 sp=0xc0025aefa0 pc=0xfa0448
+			github.com/moby/buildkit/frontend/dockerfile/dockerfile2llb.Dockerfile2LLB.func2.1()
+			        /home/dorian/go/pkg/mod/github.com/moby/buildkit@v0.10.4/frontend/dockerfile/dockerfile2llb/convert.go:343 +0x582 fp=0xc0025aff78 sp=0xc0025af118 pc=0xfc2022
+		*/
+		dockerfile2LLBMutex.Lock()
 		dockerfileLLb, _, _, err := dockerfile2llb.Dockerfile2LLB(ctx, []byte(*runnerConfig.Dockerfile), opts)
+		dockerfile2LLBMutex.Unlock()
 		if err != nil {
 			return runnerExecutable{}, errors.Wrap(err, "error converting dockerfile to llb")
 		}

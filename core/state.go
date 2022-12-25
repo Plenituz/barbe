@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"github.com/imdario/mergo"
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/sync/errgroup"
@@ -156,28 +157,62 @@ func (s *StateHandler) CreatePersisters(ctx context.Context, container *ConfigCo
 	return nil
 }
 
-func (s *StateHandler) AddPersister(persister StatePersister) error {
-	s.persisters = append(s.persisters, persister)
-
-	s.stateMutex.RLock()
-	if s.currentState != nil {
-		s.stateMutex.RUnlock()
-		return nil
-	}
-	s.stateMutex.RUnlock()
-
-	newPersister := s.persisters[len(s.persisters)-1]
+func (s *StateHandler) AddPersister(newPersister StatePersister) (e error) {
+	s.persisters = append(s.persisters, newPersister)
 	newState, err := newPersister.ReadState()
 	if err != nil {
 		return errors.Wrap(err, "error reading state from new persister")
 	}
-	//TODO merge states and write to persisters if needed
 	if newState == nil {
+		s.stateMutex.Lock()
+		defer s.stateMutex.Unlock()
+		if s.currentState != nil {
+			err = newPersister.StoreState(*s.currentState)
+			if err != nil {
+				return errors.Wrap(err, "error storing state to new persister")
+			}
+		}
 		return nil
 	}
+
 	s.stateMutex.Lock()
 	defer s.stateMutex.Unlock()
-	s.currentState = newState
+
+	defer func() {
+		if e != nil {
+			return
+		}
+		eg := errgroup.Group{}
+		eg.SetLimit(15)
+		for i := range s.persisters {
+			persister := s.persisters[i]
+			eg.Go(func() error {
+				return persister.StoreState(*s.currentState)
+			})
+		}
+		for i := range s.persisters {
+			if i == len(s.persisters)-1 {
+				//we don't need to store the state in the last persister
+				//because what we are writing is from that persister
+				continue
+			}
+			persister := s.persisters[i]
+			eg.Go(func() error {
+				return persister.StoreState(*s.currentState)
+			})
+		}
+		e = eg.Wait()
+	}()
+
+	if s.currentState == nil {
+		s.currentState = newState
+		return nil
+	}
+
+	err = mergo.Merge(&s.currentState.States, newState.States, mergo.WithOverride)
+	if err != nil {
+		return errors.Wrap(err, "error merging state")
+	}
 	return nil
 }
 
@@ -187,6 +222,7 @@ func (s *StateHandler) Persist() error {
 	if s.currentState == nil {
 		return nil
 	}
+
 	eg := errgroup.Group{}
 	eg.SetLimit(15)
 	for i := range s.persisters {
