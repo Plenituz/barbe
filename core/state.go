@@ -20,7 +20,8 @@ type StatePersister interface {
 type StateActionName = string
 
 type StateAction struct {
-	Action StateActionName
+	ScopeKey string
+	Action   StateActionName
 
 	//if Action is one of StateActionSet, StateActionDelete, StateActionPutInObject, StateActionDeleteFromObject
 	Key *string
@@ -36,6 +37,7 @@ type StateAction struct {
 }
 
 const (
+	StateScopeContextKey  = "barbe_state_scope"
 	StateStoreDatabagType = "barbe_state_store"
 	//overrides the value at the given key
 	BarbeStateSetDatabagType = "barbe_state(set_value)"
@@ -80,13 +82,14 @@ type StateHolder struct {
 	FormatVersion int64
 	//State is arbitrary data from the templates
 	//the values of this map must be json marshallable
-	States map[string]any
+	//first key is the scope key, second key is the arbitrary key
+	States map[ /*scope key*/ string]map[ /*arbitrary key*/ string]any
 }
 
 func NewStateHolder() *StateHolder {
 	return &StateHolder{
 		FormatVersion: CurrentStateHolderFormatVersion,
-		States:        make(map[string]any),
+		States:        make(map[string]map[string]any),
 	}
 }
 
@@ -100,6 +103,39 @@ type StateHandler struct {
 	persisters               []StatePersister
 }
 
+type StateScope struct {
+	Parent *StateScope
+	Name   string
+}
+
+func (s *StateScope) Key() string {
+	if s.Parent != nil {
+		return s.Parent.Key() + "::" + s.Name
+	}
+	return s.Name
+}
+
+func ContextScopeKey(ctx context.Context) string {
+	scope, ok := ctx.Value(StateScopeContextKey).(*StateScope)
+	if !ok {
+		return ""
+	}
+	return scope.Key()
+}
+
+func ContextWithScope(ctx context.Context, name string) context.Context {
+	parent, ok := ctx.Value(StateScopeContextKey).(*StateScope)
+	if !ok {
+		return context.WithValue(ctx, StateScopeContextKey, &StateScope{
+			Name: name,
+		})
+	}
+	return context.WithValue(ctx, StateScopeContextKey, &StateScope{
+		Parent: parent,
+		Name:   name,
+	})
+}
+
 func NewStateHandler(maker *Maker) *StateHandler {
 	return &StateHandler{
 		Maker:                    maker,
@@ -108,7 +144,7 @@ func NewStateHandler(maker *Maker) *StateHandler {
 	}
 }
 
-func (s *StateHandler) GetState() map[string]any {
+func (s *StateHandler) GetState(scopeKey string) map[string]any {
 	s.stateMutex.RLock()
 	defer s.stateMutex.RUnlock()
 	if s.currentState == nil {
@@ -117,7 +153,10 @@ func (s *StateHandler) GetState() map[string]any {
 	if s.currentState.States == nil {
 		return make(map[string]any)
 	}
-	return s.currentState.States
+	if s.currentState.States[scopeKey] == nil {
+		return make(map[string]any)
+	}
+	return s.currentState.States[scopeKey]
 }
 
 func (s *StateHandler) HandleStateDatabags(ctx context.Context, container *ConfigContainer) error {
@@ -125,7 +164,7 @@ func (s *StateHandler) HandleStateDatabags(ctx context.Context, container *Confi
 	if err != nil {
 		return err
 	}
-	_, err = s.HandleStateActions(ctx, container)
+	err = s.HandleStateActions(ctx, container)
 	if err != nil {
 		return err
 	}
@@ -234,7 +273,7 @@ func (s *StateHandler) Persist() error {
 	return eg.Wait()
 }
 
-func (s *StateHandler) HandleStateActions(ctx context.Context, container *ConfigContainer) (hasChanged bool, err error) {
+func (s *StateHandler) HandleStateActions(ctx context.Context, container *ConfigContainer) error {
 	stateActions := make([]StateAction, 0)
 
 	sets := container.GetDataBagsOfType(BarbeStateSetDatabagType)
@@ -296,19 +335,21 @@ func (s *StateHandler) HandleStateActions(ctx context.Context, container *Config
 		})
 	}
 
+	scopeKey := ContextScopeKey(ctx)
 	for _, action := range stateActions {
+		action.ScopeKey = scopeKey
 		err := s.ApplyStateAction(action)
 		if err != nil {
-			return false, errors.Wrap(err, "error applying state action")
+			return errors.Wrap(err, "error applying state action")
 		}
 	}
 	if len(stateActions) != 0 {
-		err = s.Persist()
+		err := s.Persist()
 		if err != nil {
-			return false, errors.Wrap(err, "error persisting state")
+			return errors.Wrap(err, "error persisting state")
 		}
 	}
-	return hasChanged, nil
+	return nil
 }
 
 func (s *StateHandler) ApplyStateAction(action StateAction) error {
@@ -336,9 +377,12 @@ func (s *StateHandler) applySetAction(action StateAction) error {
 		s.currentState = NewStateHolder()
 	}
 	if s.currentState.States == nil {
-		s.currentState.States = make(map[string]any)
+		s.currentState.States = make(map[string]map[string]any)
 	}
-	s.currentState.States[*action.Key] = action.SetValue
+	if s.currentState.States[action.ScopeKey] == nil {
+		s.currentState.States[action.ScopeKey] = make(map[string]any)
+	}
+	s.currentState.States[action.ScopeKey][*action.Key] = action.SetValue
 	return nil
 }
 
@@ -351,11 +395,15 @@ func (s *StateHandler) applyDeleteAction(action StateAction) error {
 		s.stateMutex.RUnlock()
 		return nil
 	}
+	if s.currentState.States[action.ScopeKey] == nil {
+		s.stateMutex.RUnlock()
+		return nil
+	}
 	s.stateMutex.RUnlock()
 
 	s.stateMutex.Lock()
 	defer s.stateMutex.Unlock()
-	delete(s.currentState.States, *action.Key)
+	delete(s.currentState.States[action.ScopeKey], *action.Key)
 	return nil
 }
 
@@ -369,17 +417,20 @@ func (s *StateHandler) applyPutInObjectAction(action StateAction) error {
 		s.currentState = NewStateHolder()
 	}
 	if s.currentState.States == nil {
-		s.currentState.States = make(map[string]any)
+		s.currentState.States = make(map[string]map[string]any)
 	}
-	if v, ok := s.currentState.States[*action.Key]; ok {
+	if s.currentState.States[action.ScopeKey] == nil {
+		s.currentState.States[action.ScopeKey] = make(map[string]any)
+	}
+	if v, ok := s.currentState.States[action.ScopeKey][*action.Key]; ok {
 		if _, ok := v.(map[string]any); !ok {
 			return errors.New("tried to use put_in_object but the state already has a non-object at key '" + *action.Key + "'")
 		}
 	} else {
-		s.currentState.States[*action.Key] = make(map[string]any)
+		s.currentState.States[action.ScopeKey][*action.Key] = make(map[string]any)
 	}
 	for k, v := range action.PutInObject {
-		s.currentState.States[*action.Key].(map[string]any)[k] = v
+		s.currentState.States[action.ScopeKey][*action.Key].(map[string]any)[k] = v
 	}
 	return nil
 }
@@ -396,17 +447,21 @@ func (s *StateHandler) applyDeleteFromObjectAction(action StateAction) error {
 		s.stateMutex.RUnlock()
 		return nil
 	}
+	if s.currentState.States[action.ScopeKey] == nil {
+		s.stateMutex.RUnlock()
+		return nil
+	}
 	s.stateMutex.RUnlock()
 
 	s.stateMutex.Lock()
 	defer s.stateMutex.Unlock()
-	if v, ok := s.currentState.States[*action.Key]; ok {
+	if v, ok := s.currentState.States[action.ScopeKey][*action.Key]; ok {
 		m, ok := v.(map[string]any)
 		if !ok {
 			return errors.New("tried to use delete_from_object but the state already has a non-object at key '" + *action.Key + "'")
 		}
 		delete(m, *action.DeleteFromObject)
-		s.currentState.States[*action.Key] = m
+		s.currentState.States[action.ScopeKey][*action.Key] = m
 	}
 	return nil
 }

@@ -47,7 +47,8 @@ func createVm(ctx context.Context, maker *core.Maker, input core.ConfigContainer
 		return nil, nil, errors.Wrap(err, "failed to marshal env map")
 	}
 	vm := jsonnet.MakeVM()
-	err = populateStateAndContainerInVm(maker, vm, input)
+
+	err = populateStateAndContainerInVm(maker, vm, core.ContextScopeKey(ctx), input)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "failed to populate container in vm")
 	}
@@ -101,19 +102,20 @@ func createVm(ctx context.Context, maker *core.Maker, input core.ConfigContainer
 	return vm, traceWriter, nil
 }
 
-func populateStateAndContainerInVm(maker *core.Maker, vm *jsonnet.VM, container core.ConfigContainer) error {
+func populateStateAndContainerInVm(maker *core.Maker, vm *jsonnet.VM, scopeKey string, container core.ConfigContainer) error {
 	ctxObjJson, err := json.Marshal(container.DataBags)
 	if err != nil {
 		return errors.Wrap(err, "failed to marshal context object")
 	}
 	vm.ExtCode("container", string(ctxObjJson))
 
-	state := maker.StateHandler.GetState()
+	state := maker.StateHandler.GetState(scopeKey)
 	stateJson, err := json.Marshal(state)
 	if err != nil {
 		return errors.Wrap(err, "failed to marshal state object")
 	}
 	vm.ExtCode("state", string(stateJson))
+	vm.ExtVar("barbe_scope_id", scopeKey)
 	return nil
 }
 
@@ -156,7 +158,7 @@ func executeJsonnet(ctx context.Context, maker *core.Maker, input core.ConfigCon
 					if err != nil {
 						return errors.Wrap(err, "failed to merge input with container")
 					}
-					//log.Ctx(ctx).Debug().Msgf("executing '%s.%s' pipeline[%d][%d] (%d keys in input)", templateFile.Name, maker.CurrentStep, pipelineIndex, stepIndex, len(stepInput.DataBags))
+					log.Ctx(ctx).Debug().Msgf("executing '%s.%s' pipeline[%d][%d] (%d keys in input)", templateFile.Name, maker.CurrentStep, pipelineIndex, stepIndex, len(stepInput.DataBags))
 
 					//var traceCtx context.Context
 					//var task *trace.Task
@@ -181,7 +183,7 @@ func executeJsonnet(ctx context.Context, maker *core.Maker, input core.ConfigCon
 						//trace.Log(traceCtx, "command", ctx.Value("maker").(*core.Maker).CurrentStep)
 					}
 
-					err = populateStateAndContainerInVm(maker, vm, *stepInput)
+					err = populateStateAndContainerInVm(maker, vm, core.ContextScopeKey(ctx), *stepInput)
 					if err != nil {
 						return errors.Wrap(err, "failed to populate container in vm")
 					}

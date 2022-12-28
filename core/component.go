@@ -58,17 +58,19 @@ func (maker *Maker) applyComponentsLoop(ctx context.Context, container *ConfigCo
 				return nil
 			})
 		}
+		//TODO this hangs on errors ?
 		err := eg.Wait()
 		if err != nil {
 			return err
 		}
 
 		componentInput = newDatabags.Container()
-		//This is not necessary because maker.ApplyComponent already applied the transform?
-		err = maker.TransformInPlace(ctx, componentInput)
-		if err != nil {
-			return errors.Wrap(err, "error transforming container in pipeline")
-		}
+		//This is not necessary because maker.ApplyComponent already applied the transform
+		//also this causes components that are imported to be run without their parent scope
+		//err = maker.TransformInPlace(ctx, componentInput)
+		//if err != nil {
+		//	return errors.Wrap(err, "error transforming container in pipeline")
+		//}
 
 		//remove databags that are in componentInput and already in container, to avoid looping forever
 		filterOutExistingIdenticalDatabags(ctx, *container, componentInput)
@@ -110,17 +112,6 @@ func (maker *Maker) applyComponentsLoop(ctx context.Context, container *ConfigCo
 		}
 	}
 	return nil
-}
-
-//removes all the databags that are in toRemove from container, only checks the type/name of the bags
-func filterOutDatabags(ctx context.Context, container *ConfigContainer, toRemove ConfigContainer) {
-	for _, databags := range toRemove.DataBags {
-		for _, databagGroup := range databags {
-			for _, databag := range databagGroup {
-				container.DeleteDataBag(databag.Type, databag.Name, databag.Labels)
-			}
-		}
-	}
 }
 
 //this removes all the bags that are in `container` from `newDatabags`
@@ -178,6 +169,7 @@ func (maker *Maker) ApplyComponent(ctx context.Context, file fetcher.FileDescrip
 		//trace.Log(traceCtx, "input", string(b))
 		//trace.Log(traceCtx, "command", ctx.Value("maker").(*Maker).CurrentStep)
 	}
+	ctx = ContextWithScope(ctx, file.Name)
 
 	//state_display.GlobalState.StartMinorStep(maker.CurrentStep, file.Name)
 	//defer state_display.GlobalState.EndMinorStep(maker.CurrentStep, file.Name)

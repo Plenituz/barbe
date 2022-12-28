@@ -542,5 +542,38 @@ local barbe = {
         Value: barbe.asSyntax(value) + (if dir != null then { Meta: { sub_dir: dir } } else {}),
     },
 
+    importComponent(container, name, url, copyTypes, databags)::
+        local flatBags = barbe.flatten(databags);
+        local databagsTypes = std.uniq([bag.Type for bag in flatBags], barbe.asStr);
+        local containerFormatted = {
+            local mBags = [bag for bag in flatBags if bag.Type == typeName],
+            local bagNames = std.uniq([bag.Name for bag in mBags]),
+            [typeName]: {
+                [bagName]: [
+                    bag
+                    for bag in mBags 
+                    if bag.Name == bagName
+                ]
+                for bagName in bagNames
+            }
+            for typeName in databagsTypes
+        };
+        if std.length(databags) > 0 then
+            {
+                Name: name + "_" + url + "_" + std.extVar("barbe_scope_id") + "_" + std.extVar("barbe_lifecycle_step"),
+                Type: "barbe_import_component",
+                Value: {
+                    url: url,
+                    input: {
+                        [typeName]: std.get(container, typeName, {})
+                        for typeName in copyTypes
+                    } 
+                    + containerFormatted
+                }
+            }
+        else
+            null
+    ,
+
 };
 barbe
