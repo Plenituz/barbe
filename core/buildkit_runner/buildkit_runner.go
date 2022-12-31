@@ -428,12 +428,14 @@ func buildLlbDefinition(ctx context.Context, runnerConfig runnerConfig) (runnerE
 	return executable, nil
 }
 
-func executeRunner(ctx context.Context, executable runnerExecutable, output *core.ConcurrentConfigContainer) error {
+func executeRunner(ctx context.Context, executable runnerExecutable, output *core.ConcurrentConfigContainer) (e error) {
 	//state_display.AddLogLine(state_display.FindActiveMajorStepWithMinorStepNamed("buildkit_runner"), "buildkit_runner", executable.Name)
 	maker := ctx.Value("maker").(*core.Maker)
 	outputDir := maker.OutputDir
 	state_display.GlobalState.StartMinorStep(maker.CurrentStep, executable.Name)
-	defer state_display.GlobalState.EndMinorStep(maker.CurrentStep, executable.Name)
+	defer func() {
+		state_display.GlobalState.EndMinorStepWith(maker.CurrentStep, executable.Name, e != nil)
+	}()
 
 	opts := bk.SolveOpt{
 		LocalDirs: map[string]string{

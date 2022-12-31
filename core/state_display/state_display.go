@@ -27,6 +27,7 @@ type StepStatus = string
 const (
 	StepStatusPending = "PENDING"
 	StepStatusDone    = "DONE"
+	StepStatusError   = "ERROR"
 )
 
 type MajorStep struct {
@@ -60,18 +61,25 @@ func (s *StateDisplay) StartMajorStep(name string) {
 	}
 }
 
-func (s *StateDisplay) EndMajorStep(name string) {
+func (s *StateDisplay) EndMajorStepWith(name string, withError bool) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 	majorStep := s.MajorsSteps[s.majorStepIndex[name]]
 	majorStep.EndedAt = time.Now()
 	majorStep.Status = StepStatusDone
+	if withError {
+		majorStep.Status = StepStatusError
+	}
 	s.MajorsSteps[s.majorStepIndex[name]] = majorStep
 	delete(s.majorStepIndex, name)
 
 	if s.OnStateDisplayChanged != nil {
 		s.OnStateDisplayChanged(*s)
 	}
+}
+
+func (s *StateDisplay) EndMajorStep(name string) {
+	s.EndMajorStepWith(name, false)
 }
 
 func (s *StateDisplay) StartMinorStep(parentName string, name string) {
@@ -95,13 +103,16 @@ func (s *StateDisplay) StartMinorStep(parentName string, name string) {
 	}
 }
 
-func (s *StateDisplay) EndMinorStep(parentName string, name string) {
+func (s *StateDisplay) EndMinorStepWith(parentName string, name string, withError bool) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 	majorStep := s.MajorsSteps[s.majorStepIndex[parentName]]
 	minorStep := majorStep.MinorSteps[s.minorStepIndex[parentName][name]]
 	minorStep.EndedAt = time.Now()
 	minorStep.Status = StepStatusDone
+	if withError {
+		minorStep.Status = StepStatusError
+	}
 	majorStep.MinorSteps[s.minorStepIndex[parentName][name]] = minorStep
 	delete(s.minorStepIndex[parentName], name)
 	s.MajorsSteps[s.majorStepIndex[parentName]] = majorStep
@@ -109,6 +120,10 @@ func (s *StateDisplay) EndMinorStep(parentName string, name string) {
 	if s.OnStateDisplayChanged != nil {
 		s.OnStateDisplayChanged(*s)
 	}
+}
+
+func (s *StateDisplay) EndMinorStep(parentName string, name string) {
+	s.EndMinorStepWith(parentName, name, false)
 }
 
 func (s *StateDisplay) AddTopLevelLogLine(line string) {

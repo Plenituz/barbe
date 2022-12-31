@@ -65,6 +65,9 @@ var (
 	doneStatusStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#04B575")).
 			Bold(true)
+	errStatusStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#D50000")).
+			Bold(true)
 
 	timeStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#3C3C3C")).
@@ -149,6 +152,8 @@ func viewMinorTask(minor state_display.MinorStep, logLevel zerolog.Level) string
 	result := minorTaskTitleStyle.Render(minor.Name) + " "
 	if minor.Status == state_display.StepStatusDone {
 		result += doneStatusStyle.Render("[DONE]") + " " + timeStyle.Render("("+displayDuration(minor.EndedAt.Sub(minor.StartedAt))+")")
+	} else if minor.Status == state_display.StepStatusDone {
+		result += errStatusStyle.Render("[ERR]") + " " + timeStyle.Render("("+displayDuration(minor.EndedAt.Sub(minor.StartedAt))+")")
 	} else {
 		result += timeStyle.Render("(" + displayTimeSince(minor.StartedAt) + ")")
 	}

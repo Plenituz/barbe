@@ -150,6 +150,7 @@ func (maker *Maker) Make(ctx context.Context, inputFiles []fetcher.FileDescripti
 	//this is pre_generate
 	err = maker.ApplyComponents(ctx, container)
 	if err != nil {
+		state_display.GlobalState.EndMajorStepWith("pre_generate", true)
 		return container, err
 	}
 	state_display.GlobalState.EndMajorStep("pre_generate")
@@ -158,6 +159,7 @@ func (maker *Maker) Make(ctx context.Context, inputFiles []fetcher.FileDescripti
 	maker.CurrentStep = MakeLifecycleStepGenerate
 	err = maker.ApplyComponents(ctx, container)
 	if err != nil {
+		state_display.GlobalState.EndMajorStepWith("generate", true)
 		return container, err
 	}
 	state_display.GlobalState.EndMajorStep("generate")
@@ -166,6 +168,7 @@ func (maker *Maker) Make(ctx context.Context, inputFiles []fetcher.FileDescripti
 	maker.CurrentStep = MakeLifecycleStepPostGenerate
 	err = maker.ApplyComponents(ctx, container)
 	if err != nil {
+		state_display.GlobalState.EndMajorStepWith("post_generate", true)
 		return container, err
 	}
 	state_display.GlobalState.EndMajorStep("post_generate")
@@ -185,6 +188,7 @@ func (maker *Maker) Make(ctx context.Context, inputFiles []fetcher.FileDescripti
 	maker.CurrentStep = MakeLifecycleStepPreDo
 	err = maker.ApplyComponents(ctx, container)
 	if err != nil {
+		state_display.GlobalState.EndMajorStepWith("pre_do", true)
 		return container, err
 	}
 	state_display.GlobalState.EndMajorStep("pre_do")
@@ -195,6 +199,7 @@ func (maker *Maker) Make(ctx context.Context, inputFiles []fetcher.FileDescripti
 		maker.CurrentStep = MakeLifecycleStepPreApply
 		err = maker.ApplyComponents(ctx, container)
 		if err != nil {
+			state_display.GlobalState.EndMajorStepWith("pre_apply", true)
 			return container, err
 		}
 		state_display.GlobalState.EndMajorStep("pre_apply")
@@ -203,6 +208,7 @@ func (maker *Maker) Make(ctx context.Context, inputFiles []fetcher.FileDescripti
 		maker.CurrentStep = MakeLifecycleStepApply
 		err = maker.ApplyComponents(ctx, container)
 		if err != nil {
+			state_display.GlobalState.EndMajorStepWith("apply", true)
 			return container, err
 		}
 		state_display.GlobalState.EndMajorStep("apply")
@@ -211,6 +217,7 @@ func (maker *Maker) Make(ctx context.Context, inputFiles []fetcher.FileDescripti
 		maker.CurrentStep = MakeLifecycleStepPostApply
 		err = maker.ApplyComponents(ctx, container)
 		if err != nil {
+			state_display.GlobalState.EndMajorStepWith("post_apply", true)
 			return container, err
 		}
 		state_display.GlobalState.EndMajorStep("post_apply")
@@ -220,6 +227,7 @@ func (maker *Maker) Make(ctx context.Context, inputFiles []fetcher.FileDescripti
 		maker.CurrentStep = MakeLifecycleStepPreDestroy
 		err = maker.ApplyComponents(ctx, container)
 		if err != nil {
+			state_display.GlobalState.EndMajorStepWith("pre_destroy", true)
 			return container, err
 		}
 		state_display.GlobalState.EndMajorStep("pre_destroy")
@@ -228,6 +236,7 @@ func (maker *Maker) Make(ctx context.Context, inputFiles []fetcher.FileDescripti
 		maker.CurrentStep = MakeLifecycleStepDestroy
 		err = maker.ApplyComponents(ctx, container)
 		if err != nil {
+			state_display.GlobalState.EndMajorStepWith("destroy", true)
 			return container, err
 		}
 		state_display.GlobalState.EndMajorStep("destroy")
@@ -236,6 +245,7 @@ func (maker *Maker) Make(ctx context.Context, inputFiles []fetcher.FileDescripti
 		maker.CurrentStep = MakeLifecycleStepPostDestroy
 		err = maker.ApplyComponents(ctx, container)
 		if err != nil {
+			state_display.GlobalState.EndMajorStepWith("post_destroy", true)
 			return container, err
 		}
 		state_display.GlobalState.EndMajorStep("post_destroy")
@@ -247,6 +257,7 @@ func (maker *Maker) Make(ctx context.Context, inputFiles []fetcher.FileDescripti
 	maker.CurrentStep = MakeLifecycleStepPostDo
 	err = maker.ApplyComponents(ctx, container)
 	if err != nil {
+		state_display.GlobalState.EndMajorStepWith("post_do", true)
 		return container, err
 	}
 	state_display.GlobalState.EndMajorStep("post_do")
