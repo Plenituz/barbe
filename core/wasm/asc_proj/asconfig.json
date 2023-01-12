@@ -1,0 +1,10 @@
+{
+    "entries": [
+        "main.ts"
+    ],
+    "options": {
+        "transform": ["json-as/transform"],
+        "optimize": true,
+        "outFile": "fib.wasm"
+    }
+}
