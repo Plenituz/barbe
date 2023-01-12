@@ -1,8 +1,8 @@
 # Composing manifest: how to take full advantage of Barbe and pre-hash the work for your whole team
 
 The manifest you use in a Barbe project is what determines which jsonnet templates will be used.
-They can be versioned, inherit from other manifests, and even contain regular non-jsonnet files.
-This guide explores all the different aspects of composing manifests.
+They can be versioned, import other manifests, and even contain regular non-jsonnet files with your company's defaults/preferences.
+This guide explores all the different aspects of using manifests to accomplish more for your team.
 
 ```hcl
 template {
@@ -11,22 +11,21 @@ template {
 ```
 
 In this guide you will learn:
-- [The different ways to use `template`]()
-- [How to create your own manifest from scratch]()
+- [The different ways to use `template`](#the-different-ways-to-use-template)
+- [How to create your own manifest from scratch](#how-to-create-your-own-manifest-from-scratch)
 
 
 ## The different ways to use `template`
 
-The `template` block in a Barbe configuration is where you indicate to Barbe what templates to use. To do so you have 3 options:
-- Linking to a template file (or regular file) directly 
-- Linking to a manifest file, which will contain a list of templates and can be versioned. Think of it as a base image if it was a Dockerfile
-- Adding regular configuration files to the current execution of Barbe
+The `template` block in a Barbe configuration is where you indicate to Barbe what templates to use. There are 3 kinds of "templates":
+- Components: see [components](./components.md) for more details, these are the main characters in barbe, they define what blocks you can use. For example [`aws_http_api.jsonnet` on `barbe-serverless`](https://github.com/Plenituz/barbe-serverless/blob/main/aws/aws_http_api.jsonnet)
+- Manifests: This is the root of most project, they are a collection of components, other manifests or configuration files. [barbe-serverless](https://github.com/Plenituz/barbe-serverless/blob/main/manifest.json) and [anyfront](https://github.com/Plenituz/anyfront/blob/main/manifest.json) both provide their own manifests for example. Think of it as a base image if it was a Dockerfile
+- Configuration files: We call configuration file what is usually at the root of your repository and where the developer writes the infrastructure he wants to use. This is where you write your `gcp_next_js` or `aws_function` blocks for example. Manifests can also link to configuration files if some infrastructure is shared across all of your projects, like ci/cd definition
 
 
-### Linking to a template or config file directly
+### Linking to components or config files directly
 
-This is the simplest form of using templates. You list all the templates you want to use in your projects, and they will be executed together.
-This however also removes a lot of the features that template developers might want to use, like versioning and order of execution.
+This is the simplest form of using the template block. You list all the components you want to use in your projects, and they will be executed together.
 
 ```hcl
 template {
@@ -39,14 +38,13 @@ template {
 }
 ```
 
-
-In a similar vein, you can link to regular Barbe configuration file instead templates, these could host default value or resources that
+In a similar vein, you can link to regular configuration files, these could host default value or resources that
 you want every project in your company to have. This is the equivalent of copy-pasting the file in your local directly and running `barbe generate` on it.
 
 ```hcl
-template { 
-  file = "https://raw.githubusercontent.com/Plenituz/barbe-serverless/main/examples/multi-region/config.hcl"
-  # or
+template {
+    file = "https://raw.githubusercontent.com/Plenituz/barbe-serverless/main/examples/multi-region/config.hcl"
+    # or
     files = [
         "https://raw.githubusercontent.com/Plenituz/barbe-serverless/main/examples/multi-region/config.hcl",
         "https://raw.githubusercontent.com/Plenituz/barbe-serverless/main/examples/api-gateway-nodejs/config.hcl"
@@ -54,26 +52,20 @@ template {
 }
 ```
 
+This is great if you're developing your own component and just want to try something out, but it quickly becomes inconvenient given the number of components usually involved in a project, this is where using manifests comes in.
+
 ### Linking to a manifest
 
-You can have as many manifests as you want in your project, they give flexibility to the template developers to version
-their releases, change the order of execution of templates, inherit from other manifests, and more.
-
-As expected, this is the recommended way of using templates. 
+You can have as many manifests as you want in your project, they help to keep consistent versioning across all the components you're using, and allow you to continuously update all the projects in company. You can remotely update the ci/cd definition, monitoring tools, etc by just updating the manifest.
 
 ```hcl
 template {
   manifest = "https://raw.githubusercontent.com/Plenituz/barbe-serverless/main/manifest.json"
-  # and/or
-  manifest {
-    url = "https://raw.githubusercontent.com/Plenituz/barbe-serverless/main/manifest.json"
-    # optional, version selection for this specific manifest
-    version = ">=0.1.0"
-  }
-  # and/or 
-  manifest {
-    url = "https://raw.githubusercontent.com/Plenituz/barbe-serverless/main/manifest.json"
-  }
+  # or
+  manifest = [
+    "https://raw.githubusercontent.com/Plenituz/barbe-serverless/main/manifest.json",
+    "https://raw.githubusercontent.com/Plenituz/anyfront/main/manifest.json"
+  ]
 }
 ```
 
@@ -96,110 +88,39 @@ template {
 
 ## How to create your own manifest from scratch
 
-Now that we've seen how to use them, let's look inside and see how to create our own manifest.
+If you really want to take advantage of manifests, you'll want to define your own manifest where you add your own resources/components in addition to importing existing manifests. This is what allows you to have consistency across your company's projects, and save a lot of time to your teams.
+
+If that doesn't sound like one of your needs using the ready-made manifests is great as well.
 
 ### Manifest structure
 
-Here is what the manifest for Barbe-serverless could look like
+Here is what a manifest could look like
 ```json
 {
-    "latest": "0.0.2",
-    "versions": {
-        "0.0.1": {
-            "steps": [
-                {
-                    "templates": [
-                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/c703a6bb/utils/for_each.jsonnet"
-                    ]
-                },
-                {
-                    "templates": [
-                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/c703a6bb/utils/passthrough.jsonnet",
-                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/c703a6bb/aws/aws_lambda.jsonnet"
-                    ]
-                }
-            ]
-        },
-        "0.0.2": {
-            "steps": [
-                {
-                    "templates": [
-                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/a9d08ed43/utils/for_each.jsonnet"
-                    ]
-                },
-                {
-                    "templates": [
-                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/a9d08ed43/utils/passthrough.jsonnet",
-                        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/a9d08ed43/aws/aws_lambda.jsonnet"
-                    ]
-                }
-            ]
-        }
-    }
+    // If defined, this will be printed when the manifest is executed.
+    // Can be used for deprecation notices for example
+    "message": "You're using barbe-serverless v0.1.0",
+    // This is the list of all the components that will be executed
+    "components": [
+        "https://company.com/custom_component.jsonnet",
+    ],
+    // This is the list of all the configuration files that will be added to the project
+    "files": [
+        "https://company.com/default-infrastructure.hcl"
+    ],
+    // This is the list of all the manifests that we're importing.
+    // All the components and files defined in these will be executed before the current one
+    "manifests": [
+        "https://raw.githubusercontent.com/Plenituz/barbe-serverless/main/manifest.json",
+        "https://raw.githubusercontent.com/Plenituz/anyfront/main/manifest.json"
+    ],
 }
 ```
 
-There are 2 main parts to this manifest:
-- The `latest` field, which indicates the latest version of the manifest
-- The `versions` field, which contains a list of versions, each with a list of steps.
+In this example we're importing both the anyfront and barbe-serverless manifests, which lets us use all the blocks they already define seemlessly. But we're also adding our own custom component and a default infrastructure file, which we can update over time as our stack evolves.
 
-Think of each `steps` list as a data transformation pipeline, the parsed input file goes into the first step, gets transformed by the templates in that step, the transformed data then goes into the next step and so on.
-The steps are pretty important as changing their order or the templates they contain could completely change the generated files.
-
-In our example above the `for_each.jsonnet` template needs to be executed alone first as it could itself create new `aws_lambda` blocks.
-If both the `for_each.jsonnet` template and the `aws_lambda.jsonnet` template were in the same step, the blocks that `for_each.jsonnet` creates wouldn't be seen by the `aws_lambda.jsonnet` template.
-
-### Inheriting from other manifests
-
-Using the `inheritFrom` field, you can define a list of manifests that will be used executed before the current one.
-```json
-{
-    "latest": "0.0.1",
-    "versions": {
-        "0.0.1": {
-            "inheritFrom": [
-                {
-                    "url": "https://raw.githubusercontent.com/Plenituz/barbe-serverless/main/manifest.json",
-                    "version": ">=0.0.1"
-                }
-            ],
-            "steps": ["..."]
-        }
-    }
-}
-```
-
-### Adding a message to your manifest
-
-Defining a `message` field in your manifest version will display it to the user when they run `barbe generate`.
-```json
-{
-    "latest": "0.0.1",
-    "versions": {
-        "0.0.1": {
-            "message": "This version is deprecated and will stop working once AWS EOLs thing1",
-            "steps": ["..."]
-        }
-    }
-}
-```
-
-
-### Adding regular files
-
-Similarly to template blocks, you can add regular files to your manifest.
-```json
-{
-    "latest": "0.0.1",
-    "versions": {
-        "0.0.1": {
-            "files": [
-                "https://raw.githubusercontent.com/Plenituz/barbe-serverless/main/examples/multi-region/config.hcl"
-            ],
-            "steps": ["..."]
-        }
-    }
-}
-```
-
+You can imagine
+- Switching from a Jenkins to a AWS Codebuild deployment pipeline without your developers having to know about it.
+- Adding a new monitoring tool to all your projects without having to update them one by one.
+- Including your custom service mesh service discovery registration directly in that `default-infrastructure.hcl` file.
 

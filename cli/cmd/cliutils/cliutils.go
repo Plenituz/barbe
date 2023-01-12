@@ -5,8 +5,10 @@ import (
 	"barbe/core/aws_session_provider"
 	"barbe/core/buildkit_runner"
 	"barbe/core/chown_util"
+	"barbe/core/fetcher"
 	"barbe/core/gcp_token_provider"
 	"barbe/core/hcl_parser"
+	"barbe/core/import_component"
 	"barbe/core/json_parser"
 	"barbe/core/jsonnet_templater"
 	"barbe/core/raw_file"
@@ -15,22 +17,24 @@ import (
 	"barbe/core/traversal_manipulator"
 	"barbe/core/zipper_fmt"
 	"context"
+	"github.com/pkg/errors"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/viper"
 	"io/fs"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
 )
 
-func ReadAllFilesMatching(ctx context.Context, globExprs []string) ([]core.FileDescription, error) {
-	allFiles := make([]core.FileDescription, 0)
+func ReadAllFilesMatching(ctx context.Context, globExprs []string) ([]fetcher.FileDescription, error) {
+	allFiles := make([]fetcher.FileDescription, 0)
 	dedupMap := make(map[string]struct{})
 	for _, globExpr := range globExprs {
 		matches, err := glob(globExpr)
 		if err != nil {
-			log.Ctx(ctx).Fatal().Err(err).Msg("glob matching failed")
+			return nil, errors.Wrapf(err, "failed to glob %s", globExpr)
 		}
 		for _, match := range matches {
 			fileContent, err := os.ReadFile(match)
@@ -42,7 +46,7 @@ func ReadAllFilesMatching(ctx context.Context, globExprs []string) ([]core.FileD
 				continue
 			}
 			dedupMap[match] = struct{}{}
-			allFiles = append(allFiles, core.FileDescription{
+			allFiles = append(allFiles, fetcher.FileDescription{
 				Name:    match,
 				Content: fileContent,
 			})
@@ -51,36 +55,94 @@ func ReadAllFilesMatching(ctx context.Context, globExprs []string) ([]core.FileD
 	return allFiles, nil
 }
 
-func IterateDirectories(ctx context.Context, allFiles []core.FileDescription, f func(dirFiles []core.FileDescription, ctx context.Context, maker *core.Maker) error) error {
+func IterateDirectories(ctx context.Context, command core.MakeCommand, allFiles []fetcher.FileDescription, f func(dirFiles []fetcher.FileDescription, ctx context.Context, maker *core.Maker) error) error {
 	grouped := groupFilesByDirectory(allFiles)
 	for dir, files := range grouped {
-		log.Ctx(ctx).Debug().Msg("executing maker for directory: '" + dir + "'")
-		fileNames := make([]string, 0, len(files))
-		for _, file := range files {
-			fileNames = append(fileNames, file.Name)
-		}
-		log.Ctx(ctx).Debug().Msg("with files: [" + strings.Join(fileNames, ", ") + "]")
+		err := func() error {
+			log.Ctx(ctx).Debug().Msg("executing maker for directory: '" + dir + "'")
+			fileNames := make([]string, 0, len(files))
+			for _, file := range files {
+				fileNames = append(fileNames, file.Name)
+			}
+			log.Ctx(ctx).Debug().Msg("with files: [" + strings.Join(fileNames, ", ") + "]")
 
-		maker := makeMaker(path.Join(viper.GetString("output"), dir))
-		innerCtx := context.WithValue(ctx, "maker", maker)
+			maker := makeMaker(command, path.Join(viper.GetString("output"), dir))
 
-		err := os.MkdirAll(maker.OutputDir, 0755)
-		if err != nil {
-			log.Ctx(innerCtx).Fatal().Err(err).Msg("failed to create output directory")
-		}
-		chown_util.TryRectifyRootFiles(innerCtx, []string{maker.OutputDir})
+			if os.Getenv("BARBE_LOCAL") != "" {
+				localDirs := strings.Split(os.Getenv("BARBE_LOCAL"), ":")
+				maker.Fetcher.UrlTransformer = func(s string) string {
+					parsedUrl, err := url.Parse(s)
+					if err != nil {
+						log.Ctx(ctx).Warn().Err(err).Msg("failed to parse component name in url transformer")
+						return s
+					}
+					split := strings.Split(parsedUrl.Path, "/")
+					if len(split) < 3 {
+						log.Ctx(ctx).Warn().Err(err).Msg("failed to parse component name in url transformer")
+						return s
+					}
+					componentName := split[2]
+					ext := split[len(split)-1]
+					lookingFor := componentName + ext
 
-		err = f(files, innerCtx, maker)
+					foundErr := errors.New("found")
+					found := ""
+					for _, dir := range localDirs {
+						err = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+							if err != nil {
+								log.Ctx(ctx).Warn().Err(err).Msg("failed to walk dir in url transformer")
+								return nil
+							}
+							if d.Name() != lookingFor {
+								return nil
+							}
+							found = path
+							return foundErr
+						})
+						if err != nil && !errors.Is(err, foundErr) {
+							log.Ctx(ctx).Warn().Err(err).Msg("failed to walk dir in url transformer")
+							continue
+						}
+						if found != "" {
+							break
+						}
+					}
+
+					if found == "" {
+						log.Ctx(ctx).Warn().Err(err).Msg("failed to find local component in url transformer")
+						return s
+					}
+					return found
+				}
+			}
+
+			innerCtx := context.WithValue(ctx, "maker", maker)
+
+			err := os.MkdirAll(maker.OutputDir, 0755)
+			if err != nil {
+				return errors.Wrapf(err, "failed to create output dir %s", maker.OutputDir)
+			}
+			defer chown_util.TryRectifyRootFiles(innerCtx, []string{maker.OutputDir})
+
+			err = f(files, innerCtx, maker)
+			if err != nil {
+				return err
+			}
+
+			allPaths := make([]string, 0)
+			defer chown_util.TryRectifyRootFiles(innerCtx, allPaths)
+			err = filepath.WalkDir(maker.OutputDir, func(path string, d fs.DirEntry, err error) error {
+				allPaths = append(allPaths, path)
+				return nil
+			})
+			if err != nil {
+				return err
+			}
+			return nil
+		}()
 		if err != nil {
 			return err
 		}
-
-		allPaths := make([]string, 0)
-		filepath.WalkDir(maker.OutputDir, func(path string, d fs.DirEntry, err error) error {
-			allPaths = append(allPaths, path)
-			return nil
-		})
-		chown_util.TryRectifyRootFiles(innerCtx, allPaths)
 	}
 	return nil
 }
@@ -136,8 +198,8 @@ func expand(globs []string) ([]string, error) {
 	return matches, nil
 }
 
-func groupFilesByDirectory(files []core.FileDescription) map[string][]core.FileDescription {
-	result := make(map[string][]core.FileDescription)
+func groupFilesByDirectory(files []fetcher.FileDescription) map[string][]fetcher.FileDescription {
+	result := make(map[string][]fetcher.FileDescription)
 	for _, file := range files {
 		dir := filepath.Dir(file.Name)
 		result[dir] = append(result[dir], file)
@@ -145,37 +207,33 @@ func groupFilesByDirectory(files []core.FileDescription) map[string][]core.FileD
 	return result
 }
 
-func makeMaker(dir string) *core.Maker {
-	return &core.Maker{
-		OutputDir: dir,
-		Parsers: []core.Parser{
-			hcl_parser.HclParser{},
-			json_parser.JsonParser{},
-		},
-		PreTransformers: []core.Transformer{
-			simplifier_transform.SimplifierTransformer{},
-		},
-		Templaters: []core.TemplateEngine{
-			//hcl_templater.HclTemplater{},
-			//cue_templater.CueTemplater{},
-			jsonnet_templater.JsonnetTemplater{},
-		},
-		Transformers: []core.Transformer{
-			//the simplifier being first is very important, it simplifies syntax that is equivalent
-			//to make it a lot easier for the transformers to work with
-			simplifier_transform.SimplifierTransformer{},
-			traversal_manipulator.TraversalManipulator{},
-			aws_session_provider.AwsSessionProviderTransformer{},
-			gcp_token_provider.GcpTokenProviderTransformer{},
-			buildkit_runner.BuildkitRunner{},
-		},
-		Formatters: []core.Formatter{
-			terraform_fmt.TerraformFormatter{},
-			zipper_fmt.ZipperFormatter{},
-			raw_file.RawFileFormatter{},
-		},
-		Appliers: []core.Applier{
-			buildkit_runner.BuildkitRunner{},
-		},
+func makeMaker(command core.MakeCommand, dir string) *core.Maker {
+	maker := core.NewMaker(command)
+	maker.OutputDir = dir
+	maker.Parsers = []core.Parser{
+		hcl_parser.HclParser{},
+		json_parser.JsonParser{},
 	}
+	maker.Templaters = []core.TemplateEngine{
+		//hcl_templater.HclTemplater{},
+		//cue_templater.CueTemplater{},
+		jsonnet_templater.JsonnetTemplater{},
+	}
+	maker.Transformers = []core.Transformer{
+		//the simplifier being first is very important, it simplifies syntax that is equivalent
+		//to make it a lot easier for the transformers to work with
+		simplifier_transform.SimplifierTransformer{},
+		traversal_manipulator.NewTraversalManipulator(),
+		aws_session_provider.AwsSessionProviderTransformer{},
+		gcp_token_provider.GcpTokenProviderTransformer{},
+		raw_file.RawFileFormatter{},
+		buildkit_runner.NewBuildkitRunner(),
+		import_component.NewComponentImporter(),
+	}
+	maker.Formatters = []core.Formatter{
+		terraform_fmt.TerraformFormatter{},
+		zipper_fmt.ZipperFormatter{},
+		raw_file.RawFileFormatter{},
+	}
+	return maker
 }

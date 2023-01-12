@@ -6,7 +6,7 @@ After downloading Barbe, unzip the package and place the binary on your `PATH`. 
 
 Barbe also relies on `docker` to securely execute commands inside containers. Make sure you have [`docker` installed](https://docs.docker.com/get-docker/) and running on your system.
 
-## Max/Linux
+## Mac/Linux
 
 You can check the value of your `PATH` variable by running `echo $PATH` in your terminal. Then you can move the Barbe binary to a directory that is in your `PATH` variable using
 ```bash

@@ -1,49 +1,23 @@
 package core
 
 import (
-	"bytes"
+	"barbe/core/fetcher"
 	"context"
-	"encoding/base64"
-	"encoding/json"
-	"fmt"
-	"github.com/hashicorp/go-version"
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog/log"
-	"io/ioutil"
-	"net/http"
-	"os"
-	"path"
-	"runtime"
-	"sort"
+	"golang.org/x/sync/errgroup"
 	"strings"
-	"time"
 )
 
-var httpClient = &http.Client{
-	Timeout: 30 * time.Second,
-}
-
-//used for parsing
 type Manifest struct {
-	Latest        *string `json:"latest"`
-	LatestVersion *version.Version
-	Versions      map[string]ManifestVersion `json:"versions"`
-}
-type ParentManifestLink struct {
-	Url     string  `json:"url"`
-	Version *string `json:"version"`
-}
-type ManifestVersion struct {
-	InheritFrom []ParentManifestLink `json:"inheritFrom"`
-	Message     *string              `json:"message"`
-	Files       []string             `json:"files"`
-	Steps       []ManifestStep       `json:"steps"`
-}
-type ManifestStep struct {
-	Templates []string `json:"templates"`
+	Message string `json:"message"`
+	//files are plain config files that are added to the files to parse
+	Files      []string `json:"files"`
+	Components []string `json:"components"`
+	Manifests  []string `json:"manifests"`
 }
 
-func prepareTemplates(ctx context.Context, container *ConfigContainer) (Executable, error) {
+func (maker *Maker) GetTemplates(ctx context.Context, container *ConfigContainer) (Executable, error) {
 	templateConfig := container.GetDataBagsOfType("template")
 	if templateConfig == nil {
 		return Executable{}, nil
@@ -56,231 +30,146 @@ func prepareTemplates(ctx context.Context, container *ConfigContainer) (Executab
 
 	manifests := make([]Manifest, 0, len(templateBlock.Manifests))
 	for _, link := range templateBlock.Manifests {
-		manifest, err := fetchManifestUrl(link.ManifestUrl)
+		manifest, err := maker.fetchManifest(ctx, link)
 		if err != nil {
 			return Executable{}, errors.Wrap(err, "error fetching manifest")
 		}
 		manifests = append(manifests, manifest)
 	}
 
-	executable := Executable{
-		Message: []string{},
-		Files:   []FileDescription{},
-		Steps: []ExecutableStep{
-			{Templates: []FileDescription{}},
-		},
-	}
-	for _, file := range templateBlock.Files {
-		fileContent, err := fetchFile(file)
-		if err != nil {
-			return Executable{}, errors.Wrap(err, "error fetching file")
-		}
-		executable.Files = append(executable.Files, FileDescription{
-			Name:    path.Base(file),
-			Content: fileContent,
-		})
-	}
-	for _, template := range templateBlock.Templates {
-		templateContent, err := fetchFile(template)
-		if err != nil {
-			return Executable{}, errors.Wrap(err, "error fetching template")
-		}
-
-		executable.Steps[0].Templates = append(executable.Steps[0].Templates, FileDescription{
-			Name:    path.Base(template),
-			Content: templateContent,
-		})
-	}
-	for i, manifest := range manifests {
-		constraint := templateBlock.Manifests[i].VersionConstraint
-		selectedVersion, err := selectVersion(ctx, constraint, manifest)
-		if err != nil {
-			return Executable{}, errors.Wrap(err, "error selecting version")
-		}
-		if selectedVersion == "" {
-			return Executable{}, errors.New("no version of template satisfied the constraints '" + constraint.String() + "'")
-		}
-		templateVersion, ok := manifest.Versions[selectedVersion]
-		if !ok {
-			return Executable{}, errors.New("no version of template '" + selectedVersion + "' found, this should not happen, I told you weird stuff would happen")
-		}
-		err = applyManifestToExecutable(ctx, &executable, templateVersion)
-		if err != nil {
-			return Executable{}, errors.Wrap(err, "error applying manifest version '"+selectedVersion+"' to executable")
-		}
-	}
-
-	return executable, nil
-}
-
-// turns a manifest into an executable, ignores any declared inheritFrom
-func applyManifestToExecutable(ctx context.Context, executable *Executable, manifestVersion ManifestVersion) error {
-	if len(manifestVersion.InheritFrom) != 0 {
-		for _, link := range manifestVersion.InheritFrom {
-			log.Ctx(ctx).Debug().Interface("version", link.Version).Msgf("inheriting from manifest '%s'", link.Url)
-			parentManifest, err := fetchManifestUrl(link.Url)
-			if err != nil {
-				return errors.Wrap(err, "error fetching parent manifest at '"+link.Url+"'")
+	for {
+		noneFound := true
+		for i := 0; i < len(manifests); i++ {
+			manifest := manifests[i]
+			if len(manifest.Manifests) == 0 {
+				continue
 			}
-			var versionConstraint version.Constraints
-			if link.Version != nil {
-				versionConstraint, err = version.NewConstraint(*link.Version)
+			noneFound = false
+			for _, link := range manifest.Manifests {
+				manifest, err := maker.fetchManifest(ctx, link)
 				if err != nil {
-					return errors.Wrap(err, "error parsing version constraint '"+*link.Version+"' for parent manifest '"+link.Url+"'")
+					return Executable{}, errors.Wrap(err, "error fetching manifest")
 				}
-			} else {
-				versionConstraint = version.Constraints{}
+				manifests = append(manifests, manifest)
 			}
-
-			selectedVersion, err := selectVersion(ctx, versionConstraint, parentManifest)
-			if err != nil {
-				return errors.Wrap(err, "error selecting version of parent manifest '"+link.Url+"'")
-			}
-			if selectedVersion == "" {
-				return errors.New("no version of parent manifest '" + link.Url + "' satisfied the constraints '" + versionConstraint.String() + "'")
-			}
-			parent, ok := parentManifest.Versions[selectedVersion]
-			if !ok {
-				return errors.New("no version of parent manifest '" + link.Url + "' found, this should not happen and is most likely a formatting error on the version name")
-			}
-			err = applyManifestToExecutable(ctx, executable, parent)
-			if err != nil {
-				return errors.Wrap(err, "error applying parent manifest '"+link.Url+"' to executable")
-			}
+			manifests[i].Manifests = nil
+		}
+		if noneFound {
+			break
 		}
 	}
 
-	if manifestVersion.Message != nil {
-		executable.Message = append(executable.Message, *manifestVersion.Message)
-	}
-	for _, file := range manifestVersion.Files {
-		fileContent, err := fetchFile(file)
-		if err != nil {
-			return errors.Wrap(err, "error fetching file '"+file+"'")
+	//prefetch everything in parallel, it'll be in the Fetcher's cache
+	fetcherGroup := errgroup.Group{}
+	fetcherGroup.SetLimit(10)
+	for _, manifest := range manifests {
+		for i := range manifest.Files {
+			link := manifest.Files[i]
+			fetcherGroup.Go(func() error {
+				_, err := maker.Fetcher.Fetch(link)
+				return err
+			})
 		}
-		executable.Files = append(executable.Files, FileDescription{
-			Name:    path.Base(file),
-			Content: fileContent,
-		})
-	}
-	for stepIndex, step := range manifestVersion.Steps {
-		if stepIndex >= len(executable.Steps) {
-			executable.Steps = append(executable.Steps, ExecutableStep{})
-		}
-		for _, template := range step.Templates {
-			templateContent, err := fetchFile(template)
-			if err != nil {
-				return errors.Wrap(err, "error fetching template '"+template+"'")
-			}
-			executable.Steps[stepIndex].Templates = append(executable.Steps[stepIndex].Templates, FileDescription{
-				Name:    path.Base(template),
-				Content: templateContent,
+		for i := range manifest.Components {
+			link := manifest.Components[i]
+			fetcherGroup.Go(func() error {
+				_, err := maker.Fetcher.Fetch(link)
+				return err
 			})
 		}
 	}
-	return nil
+	err = fetcherGroup.Wait()
+	if err != nil {
+		return Executable{}, errors.Wrap(err, "error fetching files")
+	}
+
+	executable := Executable{
+		Message:    "",
+		Files:      []fetcher.FileDescription{},
+		Components: []fetcher.FileDescription{},
+	}
+	for _, manifest := range manifests {
+		manifest.Message = strings.TrimSpace(manifest.Message)
+		if manifest.Message != "" {
+			if executable.Message != "" {
+				executable.Message += "\n"
+			}
+			executable.Message += manifest.Message
+		}
+		for _, file := range manifest.Files {
+			fileDesc, err := maker.Fetcher.Fetch(file)
+			if err != nil {
+				return Executable{}, errors.Wrap(err, "error fetching file")
+			}
+			executable.Files = append(executable.Files, fileDesc)
+		}
+		for _, component := range manifest.Components {
+			componentDesc, err := maker.Fetcher.Fetch(component)
+			if err != nil {
+				return Executable{}, errors.Wrap(err, "error fetching component")
+			}
+			executable.Components = append(executable.Components, componentDesc)
+		}
+	}
+	return executable, nil
 }
 
-func selectVersion(ctx context.Context, versionConstraint version.Constraints, manifest Manifest) (string, error) {
-	if versionConstraint != nil &&
-		manifest.LatestVersion != nil &&
-		versionConstraint.Check(manifest.LatestVersion) {
-		if _, ok := manifest.Versions[*manifest.Latest]; ok {
-			return *manifest.Latest, nil
-		}
-	}
-
-	definedVersions := make([]*version.Version, 0, len(manifest.Versions))
-	for vName := range manifest.Versions {
-		v, err := version.NewVersion(vName)
-		if err != nil {
-			log.Ctx(ctx).Error().Err(err).Msgf("error parsing version '%s', ignoring it", vName)
-			continue
-		}
-		if v.String() != vName {
-			log.Ctx(ctx).Error().Msgf("manifest version '%s' does not match its name, it should be '%s'. This can cause some weird stuff to happen", vName, v.String())
-		}
-		definedVersions = append(definedVersions, v)
-	}
-	sort.Sort(sort.Reverse(version.Collection(definedVersions)))
-
-	for _, v := range definedVersions {
-		if versionConstraint.Check(v) {
-			return v.String(), nil
-		}
-	}
-	return "", nil
-}
-
-func fetchManifestUrl(manifestUrl string) (Manifest, error) {
-	manifestBody, err := fetchFile(manifestUrl)
+func (maker *Maker) fetchManifest(ctx context.Context, manifestUrl string) (Manifest, error) {
+	manifestFile, err := maker.Fetcher.Fetch(manifestUrl)
 	if err != nil {
 		return Manifest{}, errors.Wrap(err, "error fetching manifest")
 	}
-	var manifest Manifest
-	err = json.NewDecoder(bytes.NewReader(manifestBody)).Decode(&manifest)
+
+	container := NewConfigContainer()
+	err = maker.ParseFiles(ctx, []fetcher.FileDescription{manifestFile}, container)
 	if err != nil {
-		return Manifest{}, errors.Wrap(err, "error json decoding manifest body at '"+manifestUrl+"'")
+		return Manifest{}, errors.Wrap(err, "error parsing manifest")
 	}
-	if manifest.Latest != nil {
-		manifest.LatestVersion, err = version.NewVersion(*manifest.Latest)
+
+	manifest := Manifest{}
+	message := container.GetDataBagGroup("message", "")
+	for i, msg := range message {
+		str, err := ExtractAsStringValue(msg.Value)
 		if err != nil {
-			return Manifest{}, errors.Wrap(err, "error parsing latest version '"+*manifest.Latest+"'")
+			log.Ctx(ctx).Warn().Err(err).Msgf("error extracting 'messages[%d]' from manifest", i)
+			continue
+		}
+		if str != "" {
+			if manifest.Message != "" {
+				manifest.Message += "\n"
+			}
+			manifest.Message += str
 		}
 	}
+
+	files := container.GetDataBagGroup("files", "")
+	for i, file := range files {
+		str, err := interpretAsStrArray(file.Value)
+		if err != nil {
+			log.Ctx(ctx).Warn().Err(err).Msgf("error extracting 'files[%d]' from manifest", i)
+			continue
+		}
+		manifest.Files = append(manifest.Files, str...)
+	}
+
+	components := container.GetDataBagGroup("components", "")
+	for i, component := range components {
+		str, err := interpretAsStrArray(component.Value)
+		if err != nil {
+			log.Ctx(ctx).Warn().Err(err).Msgf("error extracting 'components[%d]' from manifest", i)
+			continue
+		}
+		manifest.Components = append(manifest.Components, str...)
+	}
+
+	manifests := container.GetDataBagGroup("manifests", "")
+	for i, m := range manifests {
+		str, err := interpretAsStrArray(m.Value)
+		if err != nil {
+			log.Ctx(ctx).Warn().Err(err).Msgf("error extracting 'manifests[%d]' from manifest", i)
+			continue
+		}
+		manifest.Manifests = append(manifest.Components, str...)
+	}
 	return manifest, nil
-}
-
-func fetchFile(fileUrl string) ([]byte, error) {
-	if strings.HasPrefix(fileUrl, "file://") {
-		return fetchLocalFile(strings.TrimPrefix(fileUrl, "file://"))
-	} else if strings.HasPrefix(fileUrl, "http://") || strings.HasPrefix(fileUrl, "https://") {
-		return fetchRemoteFile(fileUrl)
-	} else if strings.HasPrefix(fileUrl, "base64://") {
-		return decodeBase64File(strings.TrimPrefix(fileUrl, "base64://"))
-	} else {
-		return fetchLocalFile(fileUrl)
-	}
-}
-
-func fetchLocalFile(filePath string) ([]byte, error) {
-	file, err := os.ReadFile(filePath)
-	if err != nil {
-		return nil, errors.Wrap(err, "error reading local file at '"+filePath+"'")
-	}
-	return file, nil
-}
-
-func fetchRemoteFile(fileUrl string) ([]byte, error) {
-	req, err := http.NewRequest(http.MethodGet, fileUrl, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	agent := fmt.Sprintf("barbe/"+Version+" (%s; %s)", runtime.GOOS, runtime.GOARCH)
-	req.Header.Set("User-Agent", agent)
-
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	content, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	return content, nil
-}
-
-func decodeBase64File(fileB64 string) ([]byte, error) {
-	data, err := base64.StdEncoding.DecodeString(fileB64)
-	if err != nil {
-		return nil, errors.Wrap(err, "error decoding base64 file")
-	}
-	return data, nil
-}
-
-func GetTemplates(ctx context.Context, container *ConfigContainer) (Executable, error) {
-	return prepareTemplates(ctx, container)
 }

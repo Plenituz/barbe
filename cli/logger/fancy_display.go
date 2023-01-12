@@ -5,9 +5,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/charmbracelet/bubbles/stopwatch"
-	"github.com/charmbracelet/bubbles/viewport"
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/rs/zerolog"
 	"strings"
@@ -22,16 +19,31 @@ func NewFancyOutput() *FancyOutput {
 
 func (f FancyOutput) Write(p []byte) (n int, err error) {
 	var event struct {
+		Level   string `json:"level"`
 		Message string `json:"message"`
+		Error   string `json:"error"`
 	}
 	d := json.NewDecoder(bytes.NewReader(p))
 	if err := d.Decode(&event); err != nil {
+		fmt.Println("error decoding event", err)
 		return 0, fmt.Errorf("cannot decode event: %s", err)
 	}
-	if program != nil {
-		program.Send(AddLogsMsg{logs: []string{event.Message}})
-	}
+	style := logStyle
+	text := string(p)
 
+	if event.Message != "" {
+		text = event.Message
+	}
+	if event.Error != "" {
+		text = event.Error
+	}
+	switch l, _ := zerolog.ParseLevel(event.Level); l {
+	case zerolog.WarnLevel:
+		style = warnStyle
+	case zerolog.ErrorLevel, zerolog.FatalLevel, zerolog.PanicLevel:
+		style = errStyle
+	}
+	state_display.GlobalState.AddTopLevelLogLine(style.Render(text))
 	return len(p), nil
 }
 
@@ -39,12 +51,10 @@ const (
 	shoulder = "├── "
 	elbow    = "└── "
 	body     = "│   "
-	indent   = "	"
+	indent   = "    "
 )
 
 var (
-	program *tea.Program
-
 	majorTaskTitleStyle = lipgloss.NewStyle().
 				Bold(true).
 				Foreground(lipgloss.Color("#FAFAFA"))
@@ -55,6 +65,9 @@ var (
 	doneStatusStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#04B575")).
 			Bold(true)
+	errStatusStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#D50000")).
+			Bold(true)
 
 	timeStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#3C3C3C")).
@@ -62,114 +75,16 @@ var (
 
 	logStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#3C3C3C"))
+	errStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#D50000"))
+	warnStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#E2B603"))
 )
-
-type AddLogsMsg struct {
-	logs []string
-}
-type SetStateDisplayMsg struct {
-	stateDisplay state_display.StateDisplay
-}
-
-type Model struct {
-	logLevel     zerolog.Level
-	maxLogs      int
-	logs         []string
-	viewport     viewport.Model
-	stopwatch    stopwatch.Model
-	ready        bool
-	stateDisplay state_display.StateDisplay
-}
-
-func (m Model) Init() tea.Cmd {
-	return m.stopwatch.Init()
-}
-
-func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	contentSet := false
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		switch msg.String() {
-		case "ctrl+c":
-			return m, tea.Quit
-		}
-
-	case AddLogsMsg:
-		m.logs = append(m.logs, msg.logs...)
-		if len(m.logs) >= m.maxLogs {
-			m.logs = m.logs[len(m.logs)-m.maxLogs:]
-		}
-
-	case SetStateDisplayMsg:
-		m.stateDisplay = msg.stateDisplay
-		if m.ready {
-			m.viewport.SetContent(viewTasks(m.stateDisplay, m.logLevel))
-			m.viewport.GotoBottom()
-			contentSet = true
-		}
-
-	case tea.WindowSizeMsg:
-		m.maxLogs = msg.Height / 2
-		heightOffset := m.maxLogs + 1
-		if m.logLevel > zerolog.DebugLevel {
-			heightOffset = 0
-			m.maxLogs = 0
-		}
-
-		if !m.ready {
-			m.viewport = viewport.New(msg.Width, msg.Height-heightOffset)
-			m.viewport.SetContent(viewTasks(m.stateDisplay, m.logLevel))
-			m.viewport.GotoBottom()
-			contentSet = true
-			m.ready = true
-		} else {
-			m.viewport.Width = msg.Width
-			m.viewport.Height = msg.Height - heightOffset
-		}
-	}
-
-	if !contentSet {
-		m.viewport.SetContent(viewTasks(m.stateDisplay, m.logLevel))
-		m.viewport.GotoBottom()
-	}
-
-	var cmds []tea.Cmd
-
-	v, cmd := m.viewport.Update(msg)
-	m.viewport = v
-	cmds = append(cmds, cmd)
-
-	s, cmd := m.stopwatch.Update(msg)
-	m.stopwatch = s
-	cmds = append(cmds, cmd)
-
-	return m, tea.Batch(cmds...)
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-
-func (m Model) View() string {
-	if !m.ready {
-		return "\n  Initializing..."
-	}
-	if m.logLevel > zerolog.DebugLevel {
-		return m.viewport.View()
-	}
-	line := strings.Repeat("─", max(0, m.viewport.Width))
-	logsView := viewLogs(m.logs)
-	logsView += strings.Repeat("\n", max(0, m.maxLogs-len(m.logs)))
-	return m.viewport.View() + "\n" + line + logsView
-}
 
 func viewLogs(logs []string) string {
 	var result string
 	for i, line := range logs {
-		result += logStyle.Render(line)
+		result += line
 		if i < len(logs)-1 {
 			result += "\n"
 		}
@@ -182,6 +97,7 @@ func viewTasks(stateDisplay state_display.StateDisplay, logLevel zerolog.Level) 
 	for _, major := range stateDisplay.MajorsSteps {
 		result += viewMajorTask(major, logLevel)
 	}
+	result += viewLogs(stateDisplay.Logs)
 	return result
 }
 
@@ -230,16 +146,18 @@ func viewMinorTask(minor state_display.MinorStep, logLevel zerolog.Level) string
 	} else {
 		shouldDisplay = time.Since(minor.StartedAt) > 200*time.Millisecond
 	}
-	if logLevel > zerolog.DebugLevel && !shouldDisplay {
+	if /*logLevel > zerolog.DebugLevel &&*/ !shouldDisplay {
 		return ""
 	}
 	result := minorTaskTitleStyle.Render(minor.Name) + " "
 	if minor.Status == state_display.StepStatusDone {
 		result += doneStatusStyle.Render("[DONE]") + " " + timeStyle.Render("("+displayDuration(minor.EndedAt.Sub(minor.StartedAt))+")")
+	} else if minor.Status == state_display.StepStatusDone {
+		result += errStatusStyle.Render("[ERR]") + " " + timeStyle.Render("("+displayDuration(minor.EndedAt.Sub(minor.StartedAt))+")")
 	} else {
 		result += timeStyle.Render("(" + displayTimeSince(minor.StartedAt) + ")")
 	}
-	if len(minor.LogLines) > 0 {
+	if minor.Status != state_display.StepStatusDone && len(minor.LogLines) > 0 {
 		result += "\n"
 		for i, line := range minor.LogLines {
 			result += logStyle.Render(body + line)
@@ -259,23 +177,13 @@ func displayDuration(t time.Duration) string {
 	return fmt.Sprintf("%.1fs", t.Seconds())
 }
 
-func StartFancyDisplay(logger zerolog.Logger) {
-	state_display.OnStateDisplayChanged = func(display state_display.StateDisplay) {
-		if program == nil {
-			return
-		}
-		program.Send(SetStateDisplayMsg{stateDisplay: display})
+//https://github.com/bvobart/mllint/blob/v0.7.2/commands/mllint/progress_live.go
+func StartFancyDisplay(logger zerolog.Logger) func() {
+	pg := NewLiveRunnerProgress()
+	pg.LogLevel = logger.GetLevel()
+	pg.Start()
+	state_display.GlobalState.OnStateDisplayChanged = func(display state_display.StateDisplay) {
+		pg.UpdateState(display)
 	}
-	go func() {
-		program = tea.NewProgram(Model{
-			logLevel:     logger.GetLevel(),
-			logs:         make([]string, 0),
-			maxLogs:      10,
-			stateDisplay: state_display.GlobalState,
-			stopwatch:    stopwatch.NewWithInterval(time.Millisecond * 100),
-		}, tea.WithAltScreen())
-		if err := program.Start(); err != nil {
-			logger.Debug().Err(err).Msg("error starting fancy display")
-		}
-	}()
+	return pg.Close
 }

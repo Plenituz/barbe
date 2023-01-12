@@ -24,6 +24,11 @@ type fileMapEntry struct {
 }
 
 func doTheZip(ctx context.Context, outputPath string, baseDir string, includePatterns []string, excludePatterns []string, fileMap map[string]string) error {
+	defer chown_util.TryRectifyRootFiles(ctx, []string{
+		filepath.Dir(outputPath),
+		outputPath,
+	})
+
 	for i, pattern := range includePatterns {
 		includePatterns[i] = cleanupPattern(pattern)
 	}
@@ -120,11 +125,6 @@ func doTheZip(ctx context.Context, outputPath string, baseDir string, includePat
 			return errors.Wrap(err, "failed to add file '"+file+"' to zip")
 		}
 	}
-
-	chown_util.TryRectifyRootFiles(ctx, []string{
-		filepath.Dir(outputPath),
-		outputPath,
-	})
 
 	return nil
 }

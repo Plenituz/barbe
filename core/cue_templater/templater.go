@@ -1,6 +1,7 @@
 package cue_templater
 
 import (
+	"barbe/core"
 	"context"
 	"cuelang.org/go/cue"
 	"cuelang.org/go/cue/cuecontext"
@@ -14,7 +15,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"barbe/core"
 	"strings"
 	"testing/fstest"
 )
@@ -160,7 +160,7 @@ func applyTemplate(ctx context.Context, container *core.ConfigContainer, templat
 				if core.InterfaceIsNil(value) {
 					continue
 				}
-				item, err := core.DecodeValue(value)
+				item, err := core.GoValueToToken(value)
 				if err != nil {
 					return errors.Wrap(err, "error decoding syntax token from cue template")
 				}

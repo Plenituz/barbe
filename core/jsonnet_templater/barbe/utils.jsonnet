@@ -1,19 +1,46 @@
-    local barbe = {
+local barbe = {
     regexFindAllSubmatch:: std.native("regexFindAllSubmatch"),
 
     flatten(arr)::
         if std.isArray(arr) && std.length(std.filter(std.isArray, arr)) == 0 then
             arr
         else
-        std.flattenArrays([
-            if std.isArray(item) then
-                barbe.flatten(item)
-            else
-                [item]
-            for item in arr
-        ]),
+            std.flattenArrays([
+                if std.isArray(item) then
+                    barbe.flatten(item)
+                else
+                    [item]
+                for item in arr
+            ]),
 
     databags(arr):: { Databags: barbe.flatten(arr) },
+
+    pipelines(pipes)::
+        local lifecycleStep = std.extVar("barbe_lifecycle_step");
+        local selectedPipeline = std.extVar("barbe_selected_pipeline");
+        local selectedStep = std.extVar("barbe_selected_pipeline_step");
+        if selectedPipeline == "" then
+            {
+                Pipelines: [
+                    if std.objectHas(pipe, lifecycleStep) then
+                        std.length(pipe[lifecycleStep])
+                    else
+                        0
+                    for pipe in pipes
+                ],
+            }
+         else
+            local pipe = pipes[std.parseInt(selectedPipeline)];
+            local step =
+                if std.objectHas(pipe, lifecycleStep) then
+                    pipe[lifecycleStep][std.parseInt(selectedStep)]
+                else
+                    function(_) barbe.databags([])
+                ;
+            {
+                Pipelines: step(std.extVar("container")),
+            }
+        ,
 
     accumulateTokens(root, visitor)::
         local shouldKeep = visitor(root);
@@ -313,7 +340,7 @@
         if token.Type == "template" then
             std.join("", [barbe.asStr(part) for part in token.Parts])
         else if token.Type == "literal_value" then
-            token.Value
+            std.get(token, "Value", null)
         else if token.Type == "array_const" then
             std.get(token, "ArrayConst", [])
         else if token.Type == "object_const" then
@@ -329,7 +356,23 @@
     asValArrayConst(token):: [barbe.asVal(item) for item in barbe.asVal(token)],
 
     asSyntax(token)::
-        if std.isObject(token) && std.objectHas(token, "Type") then
+        if std.isObject(token) && std.objectHas(token, "Type") && std.member([
+            "literal_value",
+            "scope_traversal",
+            "function_call",
+            "template",
+            "object_const",
+            "array_const",
+            "index_access",
+            "for",
+            "relative_traversal",
+            "conditional",
+            "binary_op",
+            "unary_op",
+            "parens",
+            "splat",
+            "anon"
+        ], token.Type) then
             token
         else if std.isString(token) || std.isNumber(token) || std.isBoolean(token) then
             {
@@ -482,6 +525,55 @@
         else
             globalDefaults
         ,
+
+    cloudResourceRaw(dir, id, kind, type, name, value):: {
+        Type: "cr_" + (
+            if kind != null then
+                (
+                    "[" + kind + (
+                        if id != null then "(" + id + ")" else ""
+                    ) +
+                    "]" +
+                    (if type != null then "_" else "")
+                )
+            else ""
+        ) + (if type != null then type else ""),
+        Name: name,
+        Value: barbe.asSyntax(value) + (if dir != null then { Meta: { sub_dir: dir } } else {}),
+    },
+
+    importComponent(container, name, url, copyTypes, databags)::
+        local flatBags = barbe.flatten(databags);
+        local databagsTypes = std.uniq([bag.Type for bag in flatBags], barbe.asStr);
+        local containerFormatted = {
+            local mBags = [bag for bag in flatBags if bag.Type == typeName],
+            local bagNames = std.uniq([bag.Name for bag in mBags]),
+            [typeName]: {
+                [bagName]: [
+                    bag
+                    for bag in mBags 
+                    if bag.Name == bagName
+                ]
+                for bagName in bagNames
+            }
+            for typeName in databagsTypes
+        };
+        if std.length(databags) > 0 then
+            {
+                Name: name + "_" + url + "_" + std.extVar("barbe_scope_id") + "_" + std.extVar("barbe_lifecycle_step"),
+                Type: "barbe_import_component",
+                Value: {
+                    url: url,
+                    input: {
+                        [typeName]: std.get(container, typeName, {})
+                        for typeName in copyTypes
+                    } 
+                    + containerFormatted
+                }
+            }
+        else
+            null
+    ,
 
 };
 barbe

@@ -1,51 +1,60 @@
 package buildkit_runner
 
 import (
+	"archive/tar"
 	"barbe/core"
 	"barbe/core/buildkit_runner/buildkit_status"
 	"barbe/core/buildkit_runner/buildkitd"
 	"barbe/core/buildkit_runner/socketprovider"
 	"barbe/core/chown_util"
+	"barbe/core/fetcher"
 	"barbe/core/state_display"
 	"bufio"
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"github.com/containerd/containerd/platforms"
+	gitioutil "github.com/go-git/go-git/v5/utils/ioutil"
 	bk "github.com/moby/buildkit/client"
 	"github.com/moby/buildkit/client/llb"
 	"github.com/moby/buildkit/frontend/dockerfile/dockerfile2llb"
 	bkgw "github.com/moby/buildkit/frontend/gateway/client"
 	"github.com/moby/buildkit/session"
 	"github.com/moby/buildkit/util/buildinfo/types"
+	"github.com/moby/buildkit/util/testutil"
 	specs "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/sync/errgroup"
 	"io"
+	"io/ioutil"
 	"os"
 	"path"
 	"strings"
 	"sync"
 )
 
-type BuildkitRunner struct{}
+const bagName = "buildkit_run_in_container"
 
-func (t BuildkitRunner) Name() string {
+type BuildkitRunner struct {
+	alreadyExecuted map[string]struct{}
+}
+
+func NewBuildkitRunner() *BuildkitRunner {
+	return &BuildkitRunner{
+		alreadyExecuted: make(map[string]struct{}),
+	}
+}
+
+func (t *BuildkitRunner) Name() string {
 	return "buildkit_runner"
 }
 
-func (t BuildkitRunner) Transform(ctx context.Context, data *core.ConfigContainer) error {
-	return run(ctx, data, "buildkit_run_in_container_transform")
-}
-
-func (t BuildkitRunner) Apply(ctx context.Context, data *core.ConfigContainer) error {
-	return run(ctx, data, "buildkit_run_in_container_apply")
-}
-
-func run(ctx context.Context, data *core.ConfigContainer, databagType string) error {
+func (t *BuildkitRunner) Transform(ctx context.Context, data core.ConfigContainer) (core.ConfigContainer, error) {
 	executables := make([]runnerExecutable, 0)
 	for resourceType, m := range data.DataBags {
-		if resourceType != databagType {
+		if resourceType != bagName {
 			continue
 		}
 
@@ -54,69 +63,55 @@ func run(ctx context.Context, data *core.ConfigContainer, databagType string) er
 				if databag.Value.Type != core.TokenTypeObjectConst {
 					continue
 				}
-				executedToken := core.GetObjectKeyValues("executed", databag.Value.ObjectConst)
-				if len(executedToken) != 0 {
+				if _, ok := t.alreadyExecuted[databag.Name]; ok {
 					continue
 				}
+				t.alreadyExecuted[databag.Name] = struct{}{}
 
 				var err error
 				config, err := parseRunnerConfig(ctx, databag.Value.ObjectConst)
 				if err != nil {
-					return errors.Wrap(err, "error compiling buildkit_run_in_container")
+					return core.ConfigContainer{}, errors.Wrap(err, "error compiling buildkit_run_in_container")
 				}
 				executable, err := buildLlbDefinition(ctx, config)
 				if err != nil {
-					return errors.Wrap(err, "error building llb definition")
+					return core.ConfigContainer{}, errors.Wrap(err, "error building llb definition")
 				}
-				executable.Name = databag.Name
+				if executable.Name == "" {
+					executable.Name = databag.Name
+				}
 				executables = append(executables, executable)
-
-				err = data.Insert(core.DataBag{
-					Name:   databag.Name,
-					Type:   databag.Type,
-					Labels: databag.Labels,
-					Value: core.SyntaxToken{
-						Type: core.TokenTypeObjectConst,
-						ObjectConst: []core.ObjectConstItem{
-							{
-								Key: "executed",
-								Value: core.SyntaxToken{
-									Type:  core.TokenTypeLiteralValue,
-									Value: true,
-								},
-							},
-						},
-					},
-				})
-				if err != nil {
-					return errors.Wrap(err, "error inserting buildkit_run_in_container")
-				}
 			}
 		}
 	}
 	if len(executables) == 0 {
-		return nil
+		tmp := core.NewConfigContainer()
+		return *tmp, nil
 	}
 
 	eg := errgroup.Group{}
+	output := core.NewConcurrentConfigContainer()
 	for _, executable := range executables {
 		e := executable
 		eg.Go(func() error {
-			return executeRunner(ctx, e, data)
+			return executeRunner(ctx, e, output)
 		})
 	}
 	err := eg.Wait()
 	if err != nil {
-		return errors.Wrap(err, "error executing buildkit_run_in_container")
+		return core.ConfigContainer{}, errors.Wrap(err, "error executing buildkit_run_in_container")
 	}
-	return nil
+	return *output.Container(), nil
 }
 
 type runnerConfig struct {
-	Message             string
-	RequireConfirmation bool
-	ExportedFiles       map[string]string
-	ReadBackFiles       []string
+	Message               string
+	DisplayName           string
+	RequireConfirmation   bool
+	ExportedFiles         map[string]string
+	ExportedFilesLocation string
+	ReadBackFiles         []string
+	Excludes              []string
 
 	Dockerfile *string
 	NoCache    bool
@@ -129,12 +124,13 @@ type runnerConfig struct {
 
 type runnerExecutable struct {
 	//Name is just for display
-	Name                string
-	Message             string
-	RequireConfirmation bool
-	llbDefinition       llb.State
-	ExportedFiles       map[string]string
-	ReadBackFiles       []string
+	Name                  string
+	Message               string
+	RequireConfirmation   bool
+	llbDefinition         llb.State
+	ExportedFiles         map[string]string
+	ExportedFilesLocation string
+	ReadBackFiles         []string
 }
 
 func parseRunnerConfig(ctx context.Context, objConst []core.ObjectConstItem) (runnerConfig, error) {
@@ -177,6 +173,28 @@ func parseRunnerConfig(ctx context.Context, objConst []core.ObjectConstItem) (ru
 			}
 		}
 	}
+	excludesToken := core.GetObjectKeyValues("excludes", objConst)
+	if len(excludesToken) != 0 {
+		for _, excludeToken := range excludesToken {
+			switch excludeToken.Type {
+			case core.TokenTypeArrayConst:
+				for _, item := range excludeToken.ArrayConst {
+					exclude, err := core.ExtractAsStringValue(item)
+					if err != nil {
+						return runnerConfig{}, errors.Wrap(err, "error extracting exclude value on buildkit_run_in_container")
+					}
+					output.Excludes = append(output.Excludes, exclude)
+				}
+
+			default:
+				exclude, err := core.ExtractAsStringValue(excludeToken)
+				if err != nil {
+					return runnerConfig{}, errors.Wrap(err, "error extracting exclude value on buildkit_run_in_container")
+				}
+				output.Excludes = append(output.Excludes, exclude)
+			}
+		}
+	}
 
 	messageToken := core.GetObjectKeyValues("message", objConst)
 	if len(messageToken) != 0 {
@@ -189,6 +207,27 @@ func parseRunnerConfig(ctx context.Context, objConst []core.ObjectConstItem) (ru
 				output.Message += "\n"
 			}
 			output.Message += tmp
+		}
+	}
+	displayNameToken := core.GetObjectKeyValues("display_name", objConst)
+	if len(displayNameToken) != 0 {
+		for _, token := range displayNameToken {
+			tmp, err := core.ExtractAsStringValue(token)
+			if err != nil {
+				log.Ctx(ctx).Warn().Msgf("error extracting display_name value on buildkit_run_in_container")
+			}
+			output.DisplayName = tmp
+		}
+	}
+
+	exportedFilesLocationToken := core.GetObjectKeyValues("exported_files_location", objConst)
+	if len(exportedFilesLocationToken) != 0 {
+		for _, token := range exportedFilesLocationToken {
+			tmp, err := core.ExtractAsStringValue(token)
+			if err != nil {
+				log.Ctx(ctx).Warn().Msgf("error extracting exported_files_location value on buildkit_run_in_container")
+			}
+			output.ExportedFilesLocation = tmp
 		}
 	}
 
@@ -317,15 +356,20 @@ func parseRunnerConfig(ctx context.Context, objConst []core.ObjectConstItem) (ru
 	return output, nil
 }
 
+var dockerfile2LLBMutex = sync.Mutex{}
+
 func buildLlbDefinition(ctx context.Context, runnerConfig runnerConfig) (runnerExecutable, error) {
 	executable := runnerExecutable{
-		ExportedFiles:       runnerConfig.ExportedFiles,
-		Message:             runnerConfig.Message,
-		RequireConfirmation: runnerConfig.RequireConfirmation,
-		ReadBackFiles:       runnerConfig.ReadBackFiles,
+		Name:                  runnerConfig.DisplayName,
+		ExportedFiles:         runnerConfig.ExportedFiles,
+		Message:               runnerConfig.Message,
+		RequireConfirmation:   runnerConfig.RequireConfirmation,
+		ReadBackFiles:         runnerConfig.ReadBackFiles,
+		ExportedFilesLocation: runnerConfig.ExportedFilesLocation,
 	}
 	if runnerConfig.Dockerfile != nil {
 		opts := dockerfile2llb.ConvertOpt{
+			Excludes: runnerConfig.Excludes,
 			ContextByName: func(ctx context.Context, name, resolveMode string, p *specs.Platform) (*llb.State, *dockerfile2llb.Image, *binfotypes.BuildInfo, error) {
 				if !strings.HasPrefix(name, "docker.io/library/src") {
 					return nil, nil, nil, nil
@@ -340,7 +384,23 @@ func buildLlbDefinition(ctx context.Context, runnerConfig runnerConfig) (runnerE
 		if runnerConfig.NoCache {
 			opts.IgnoreCache = []string{}
 		}
+		//unsure why but dockerfile2llb is not thread safe, it seems to re-use an image resolver cache?
+		/*
+			fatal error: concurrent map writes
+
+			goroutine 85 [running]:
+			runtime.throw({0x1561074?, 0x1462c00?})
+			        /usr/local/go/src/runtime/panic.go:992 +0x71 fp=0xc0025aef38 sp=0xc0025aef08 pc=0x434a11
+			runtime.mapassign_faststr(0x1386d40, 0xc0057096b0, {0xc00136c000, 0x2b})
+			        /usr/local/go/src/runtime/map_faststr.go:295 +0x38b fp=0xc0025aefa0 sp=0xc0025aef38 pc=0x41328b
+			github.com/moby/buildkit/client/llb/imagemetaresolver.(*imageMetaResolver).ResolveImageConfig(0xc0007e3640, {0x192d988, 0xc0007e3680}, {0xc001a6c1c0, 0x20}, {0xc001107180, {0x154c3a2, 0x7}, {0xc001a6a140, 0x3d}})
+			        /home/dorian/go/pkg/mod/github.com/moby/buildkit@v0.10.4/client/llb/imagemetaresolver/resolver.go:98 +0x2e8 fp=0xc0025af118 sp=0xc0025aefa0 pc=0xfa0448
+			github.com/moby/buildkit/frontend/dockerfile/dockerfile2llb.Dockerfile2LLB.func2.1()
+			        /home/dorian/go/pkg/mod/github.com/moby/buildkit@v0.10.4/frontend/dockerfile/dockerfile2llb/convert.go:343 +0x582 fp=0xc0025aff78 sp=0xc0025af118 pc=0xfc2022
+		*/
+		dockerfile2LLBMutex.Lock()
 		dockerfileLLb, _, _, err := dockerfile2llb.Dockerfile2LLB(ctx, []byte(*runnerConfig.Dockerfile), opts)
+		dockerfile2LLBMutex.Unlock()
 		if err != nil {
 			return runnerExecutable{}, errors.Wrap(err, "error converting dockerfile to llb")
 		}
@@ -368,10 +428,14 @@ func buildLlbDefinition(ctx context.Context, runnerConfig runnerConfig) (runnerE
 	return executable, nil
 }
 
-func executeRunner(ctx context.Context, executable runnerExecutable, container *core.ConfigContainer) error {
-	state_display.AddLogLine(state_display.FindActiveMajorStepWithMinorStepNamed("buildkit_runner"), "buildkit_runner", executable.Name)
+func executeRunner(ctx context.Context, executable runnerExecutable, output *core.ConcurrentConfigContainer) (e error) {
+	//state_display.AddLogLine(state_display.FindActiveMajorStepWithMinorStepNamed("buildkit_runner"), "buildkit_runner", executable.Name)
 	maker := ctx.Value("maker").(*core.Maker)
 	outputDir := maker.OutputDir
+	state_display.GlobalState.StartMinorStep(maker.CurrentStep, executable.Name)
+	defer func() {
+		state_display.GlobalState.EndMinorStepWith(maker.CurrentStep, executable.Name, e != nil)
+	}()
 
 	opts := bk.SolveOpt{
 		LocalDirs: map[string]string{
@@ -382,6 +446,7 @@ func executeRunner(ctx context.Context, executable runnerExecutable, container *
 		},
 	}
 
+	var tarBuffer bytes.Buffer
 	if len(executable.ExportedFiles) != 0 {
 		root := executable.llbDefinition
 		executable.llbDefinition = llb.Scratch()
@@ -397,6 +462,16 @@ func executeRunner(ctx context.Context, executable runnerExecutable, container *
 			{
 				Type:      bk.ExporterLocal,
 				OutputDir: outputDir,
+			},
+		}
+	} else if executable.ExportedFilesLocation != "" {
+		wc := gitioutil.WriteNopCloser(&tarBuffer)
+		opts.Exports = []bk.ExportEntry{
+			{
+				Type: bk.ExporterTar,
+				Output: func(m map[string]string) (io.WriteCloser, error) {
+					return wc, nil
+				},
 			},
 		}
 	}
@@ -426,38 +501,91 @@ func executeRunner(ctx context.Context, executable runnerExecutable, container *
 	if err != nil {
 		return errors.Wrap(err, "error marshalling llb definition")
 	}
-	err = executeLlbDefinition(ctx, bkClient, definition, opts)
+
+	err = executeLlbDefinition(ctx, executable.Name, func(s string) {
+		log.Ctx(ctx).Debug().Msg(s)
+		state_display.GlobalState.AddLogLine(maker.CurrentStep, executable.Name, s)
+	}, bkClient, definition, opts)
 	if err != nil {
 		return err
 	}
 
-	exportedFiles := make([]string, 0, len(executable.ExportedFiles))
-	for _, v := range executable.ExportedFiles {
-		exportedFiles = append(exportedFiles, path.Join(outputDir, v))
-	}
-	chown_util.TryRectifyRootFiles(ctx, exportedFiles)
+	if len(executable.ExportedFiles) != 0 {
+		exportedFiles := make([]string, 0, len(executable.ExportedFiles))
+		for _, v := range executable.ExportedFiles {
+			exportedFiles = append(exportedFiles, path.Join(outputDir, v))
+		}
+		defer chown_util.TryRectifyRootFiles(ctx, exportedFiles)
+	} else if executable.ExportedFilesLocation != "" {
+		tarMap, err := testutil.ReadTarToMap(tarBuffer.Bytes(), false)
+		if err != nil {
+			return errors.Wrap(err, "error reading tar")
+		}
+		exportedFilesContent, ok := tarMap[strings.TrimPrefix(executable.ExportedFilesLocation, "/")]
+		if !ok {
+			return errors.New("exported files location not found in tar")
+		}
+		var exportedFiles map[string]string
+		err = json.Unmarshal(exportedFilesContent.Data, &exportedFiles)
+		if err != nil {
+			return errors.Wrap(err, "error unmarshalling exported files")
+		}
 
-	readBackFiles := make([]core.FileDescription, 0, len(executable.ReadBackFiles))
+		for nameInContainer, nameInHost := range exportedFiles {
+			nameInContainerNoSlash := strings.TrimPrefix(nameInContainer, "/")
+			for fileName, file := range tarMap {
+				if file.Header.Typeflag == tar.TypeDir {
+					continue
+				}
+				if file.Data == nil {
+					continue
+				}
+				if !strings.HasPrefix(fileName, nameInContainerNoSlash) {
+					continue
+				}
+				fileName = strings.TrimPrefix(fileName, nameInContainerNoSlash)
+				fileName = strings.TrimPrefix(fileName, "/")
+				fileName = path.Join(nameInHost, fileName)
+				filePath := path.Join(outputDir, fileName)
+
+				err = os.MkdirAll(path.Dir(filePath), 0755)
+				if err != nil {
+					return errors.Wrap(err, "error creating directory")
+				}
+				err = ioutil.WriteFile(filePath, file.Data, 0644)
+				if err != nil {
+					return errors.Wrap(err, "error writing file")
+				}
+			}
+		}
+	}
+
+	readBackFiles := make([]fetcher.FileDescription, 0, len(executable.ReadBackFiles))
 	for _, file := range executable.ReadBackFiles {
 		fullPath := path.Join(outputDir, file)
 		content, err := os.ReadFile(fullPath)
 		if err != nil {
 			return errors.Wrap(err, "error reading back file '"+file+"'")
 		}
-		readBackFiles = append(readBackFiles, core.FileDescription{
+		readBackFiles = append(readBackFiles, fetcher.FileDescription{
 			Name:    fullPath,
 			Content: content,
 		})
 	}
-	err = maker.ParseFiles(ctx, readBackFiles, container)
+
+	tmp := core.NewConfigContainer()
+	err = maker.ParseFiles(ctx, readBackFiles, tmp)
 	if err != nil {
 		return errors.Wrap(err, "error parsing read back files")
 	}
-
+	err = output.MergeWith(*tmp)
+	if err != nil {
+		return errors.Wrap(err, "error merging read back files")
+	}
 	return nil
 }
 
-func executeLlbDefinition(ctx context.Context, bkClient *bk.Client, definition *llb.Definition, opts bk.SolveOpt) error {
+func executeLlbDefinition(ctx context.Context, name string, logger func(logLine string), bkClient *bk.Client, definition *llb.Definition, opts bk.SolveOpt) error {
 	buildFunc := func(ctx context.Context, c bkgw.Client) (*bkgw.Result, error) {
 		sreq := bkgw.SolveRequest{
 			Definition: definition.ToPB(),
@@ -488,12 +616,12 @@ func executeLlbDefinition(ctx context.Context, bkClient *bk.Client, definition *
 			for scanner.Scan() {
 				line := scanner.Text()
 				if line != "" {
-					log.Ctx(ctx).Debug().Msg(line)
+					logger(line)
 				}
 			}
 		}()
 
-		err := buildkit_status.DisplaySolveStatus(ctx, "", nil, writer, buildCh)
+		err := buildkit_status.DisplaySolveStatus(ctx, name, nil, writer, buildCh)
 		if err != nil {
 			log.Ctx(ctx).Error().Err(err).Msg("error displaying buildkit status")
 		}

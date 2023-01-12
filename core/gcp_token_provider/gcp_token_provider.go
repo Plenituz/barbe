@@ -19,7 +19,8 @@ func (t GcpTokenProviderTransformer) Name() string {
 	return "gcp_token_provider"
 }
 
-func (t GcpTokenProviderTransformer) Transform(ctx context.Context, data *core.ConfigContainer) error {
+func (t GcpTokenProviderTransformer) Transform(ctx context.Context, data core.ConfigContainer) (core.ConfigContainer, error) {
+	output := core.NewConfigContainer()
 	for resourceType, m := range data.DataBags {
 		if resourceType != "gcp_token_request" {
 			continue
@@ -29,33 +30,36 @@ func (t GcpTokenProviderTransformer) Transform(ctx context.Context, data *core.C
 				if databag.Value.Type != core.TokenTypeObjectConst {
 					continue
 				}
-				err := populateGcpToken(ctx, data, *databag)
+				existing := data.GetDataBagGroup("gcp_token", databag.Name)
+				if len(existing) > 0 {
+					continue
+				}
+				newBag, err := populateGcpToken(ctx, databag)
 				if err != nil {
-					return errors.Wrap(err, "error populating aws session")
+					return core.ConfigContainer{}, errors.Wrap(err, "error populating aws session")
+				}
+				err = output.Insert(newBag)
+				if err != nil {
+					return core.ConfigContainer{}, errors.Wrap(err, "error inserting aws credentials")
 				}
 			}
 		}
 	}
-	return nil
+	return *output, nil
 }
 
-func populateGcpToken(ctx context.Context, data *core.ConfigContainer, dataBag core.DataBag) error {
-	existing := data.GetDataBagGroup("gcp_token", dataBag.Name)
-	if len(existing) > 0 {
-		return nil
-	}
-
+func populateGcpToken(ctx context.Context, dataBag core.DataBag) (core.DataBag, error) {
 	chown_util.TryAdjustRootHomeDir(ctx)
 	creds, err := GetCredentials(ctx, []string{
 		"https://www.googleapis.com/auth/cloud-platform",
 	}, false)
 	if err != nil {
-		return errors.Wrap(err, "error getting gcp credentials")
+		return core.DataBag{}, errors.Wrap(err, "error getting gcp credentials")
 	}
 
 	token, err := creds.TokenSource.Token()
 	if err != nil {
-		return errors.Wrap(err, "error getting gcp token")
+		return core.DataBag{}, errors.Wrap(err, "error getting gcp token")
 	}
 
 	bag := core.DataBag{
@@ -82,12 +86,7 @@ func populateGcpToken(ctx context.Context, data *core.ConfigContainer, dataBag c
 			},
 		},
 	}
-
-	err = data.Insert(bag)
-	if err != nil {
-		return errors.Wrap(err, "error inserting aws credentials")
-	}
-	return nil
+	return bag, nil
 }
 
 type staticTokenSource struct {

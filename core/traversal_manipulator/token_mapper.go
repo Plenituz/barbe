@@ -9,13 +9,7 @@ import (
 	"reflect"
 )
 
-type tokenMap struct {
-	Match     core.SyntaxToken
-	ReplaceBy core.SyntaxToken
-}
-
-func mapTokens(ctx context.Context, data *core.ConfigContainer) error {
-	transformMaps := make([]tokenMap, 0)
+func (t *TraversalManipulator) mapTokens(ctx context.Context, data core.ConfigContainer, output *core.ConfigContainer) error {
 	for resourceType, m := range data.DataBags {
 		if resourceType != "token_map" {
 			continue
@@ -25,12 +19,15 @@ func mapTokens(ctx context.Context, data *core.ConfigContainer) error {
 				if databag.Value.Type != core.TokenTypeArrayConst {
 					return fmt.Errorf("token_map databag '%s[%d]' is not an array", name, i)
 				}
+				t.tokenMapsMutex.Lock()
 				for j, item := range databag.Value.ArrayConst {
 					parsed, err := parseMatchObj(ctx, item)
 					if err != nil {
+						t.tokenMapsMutex.Unlock()
 						return errors.Wrap(err, fmt.Sprintf("error parsing token_map databag at '%s[%d][%d]'", name, i, j))
 					}
-					transformMaps = append(transformMaps, parsed)
+					t.tokenMaps = append(t.tokenMaps, parsed)
+					t.tokenMapsMutex.Unlock()
 				}
 			}
 		}
@@ -42,11 +39,17 @@ func mapTokens(ctx context.Context, data *core.ConfigContainer) error {
 		}
 		for name, group := range m {
 			for i, databag := range group {
-				err := tokenMapperLoop(ctx, databag, transformMaps)
+				changed, changedBag, err := t.tokenMapperLoop(ctx, databag)
 				if err != nil {
 					return errors.Wrapf(err, "error applying token_map to databag '%s[%d]'", name, i)
 				}
-				data.DataBags[resourceType][name][i] = databag
+				if !changed {
+					continue
+				}
+				err = output.Insert(changedBag)
+				if err != nil {
+					return errors.Wrapf(err, "error inserting changed databag '%s[%d]'", name, i)
+				}
 			}
 		}
 	}
@@ -80,26 +83,29 @@ func parseMatchObj(ctx context.Context, token core.SyntaxToken) (tokenMap, error
 	return result, nil
 }
 
-func tokenMapperLoop(ctx context.Context, databag *core.DataBag, transformMaps []tokenMap) error {
+func (t *TraversalManipulator) tokenMapperLoop(ctx context.Context, databag core.DataBag) (changed bool, changedBag core.DataBag, e error) {
 	for i := 0; i < 100; i++ {
-		count := 0
-		transformed, err := visitTokenMappers(ctx, core.TokenPtr(databag.Value), transformMaps, func() {
-			count++
+		shouldStop := true
+		transformed, err := t.visitTokenMappers(ctx, core.TokenPtr(databag.Value), func() {
+			changed = true
+			shouldStop = false
 		})
 		if err != nil {
-			return err
+			return false, core.DataBag{}, err
 		}
 		databag.Value = *transformed
-		if count == 0 {
+		if shouldStop {
 			break
 		}
 	}
-	return nil
+	return changed, databag, nil
 }
 
-func visitTokenMappers(ctx context.Context, root *core.SyntaxToken, transformMap []tokenMap, counter func()) (*core.SyntaxToken, error) {
+func (t *TraversalManipulator) visitTokenMappers(ctx context.Context, root *core.SyntaxToken, counter func()) (*core.SyntaxToken, error) {
 	return core.Visit(ctx, root, func(token *core.SyntaxToken) (*core.SyntaxToken, error) {
-		for _, transform := range transformMap {
+		t.tokenMapsMutex.RLock()
+		defer t.tokenMapsMutex.RUnlock()
+		for _, transform := range t.tokenMaps {
 			if !reflect.DeepEqual(*token, transform.Match) {
 				continue
 			}

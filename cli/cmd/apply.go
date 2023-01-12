@@ -5,10 +5,15 @@ import (
 	"barbe/cli/cmd/cliutils"
 	"barbe/cli/logger"
 	"barbe/core"
+	"barbe/core/fetcher"
 	"context"
+	"encoding/json"
+	"github.com/pkg/errors"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"os"
+	"path"
 )
 
 var applyCmd = &cobra.Command{
@@ -21,7 +26,8 @@ var applyCmd = &cobra.Command{
 			panic(err)
 		}
 
-		lg := logger.New()
+		lg, closer := logger.New()
+		defer closer()
 		ctx := lg.WithContext(cmd.Context())
 
 		if len(args) == 0 {
@@ -31,7 +37,8 @@ var applyCmd = &cobra.Command{
 
 		allFiles, err := cliutils.ReadAllFilesMatching(ctx, args)
 		if err != nil {
-			lg.Fatal().Err(err).Msg("failed to read files")
+			lg.Error().Err(err).Msg("failed to read files")
+			return
 		}
 
 		fileNames := make([]string, 0, len(allFiles))
@@ -41,16 +48,29 @@ var applyCmd = &cobra.Command{
 		analytics.QueueEvent(ctx, analytics.AnalyticsEvent{
 			EventType: "ExecutionStart",
 			EventProperties: map[string]interface{}{
-				"Files":     fileNames,
-				"FileCount": len(allFiles),
-				"Command":   "apply",
+				"Files":       fileNames,
+				"FileCount":   len(allFiles),
+				"CurrentStep": "apply",
 			},
 		})
 
-		err = cliutils.IterateDirectories(ctx, allFiles, func(files []core.FileDescription, ctx context.Context, maker *core.Maker) error {
-			_, err = maker.Make(ctx, files, true)
+		err = cliutils.IterateDirectories(ctx, core.MakeCommandApply, allFiles, func(files []fetcher.FileDescription, ctx context.Context, maker *core.Maker) error {
+			container, err := maker.Make(ctx, files)
 			if err != nil {
-				log.Ctx(ctx).Fatal().Err(err).Msg("generation failed")
+				return errors.Wrap(err, "generation failed")
+			}
+			if viper.GetBool("debug-bags") {
+				b, err := json.MarshalIndent(container, "", "  ")
+				if err != nil {
+					log.Ctx(ctx).Error().Err(err).Msg("failed to marshal container (for --debug-bags)")
+				} else {
+					outputFile := path.Join(maker.OutputDir, "debug-bags.json")
+					err = os.WriteFile(outputFile, b, 0644)
+					if err != nil {
+						log.Ctx(ctx).Error().Err(err).Msg("failed to write debug-bags.json")
+					}
+					log.Ctx(ctx).Info().Msg("wrote databags at '" + outputFile + "'")
+				}
 			}
 			return nil
 		})
@@ -61,7 +81,8 @@ var applyCmd = &cobra.Command{
 					"Error": err.Error(),
 				},
 			})
-			lg.Fatal().Err(err).Msg("")
+			lg.Error().Err(err).Msg("")
+			return
 		}
 		analytics.QueueEvent(ctx, analytics.AnalyticsEvent{
 			EventType: "ExecutionEnd",

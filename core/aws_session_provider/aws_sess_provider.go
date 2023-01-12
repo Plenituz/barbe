@@ -16,7 +16,8 @@ func (t AwsSessionProviderTransformer) Name() string {
 	return "aws_session_provider"
 }
 
-func (t AwsSessionProviderTransformer) Transform(ctx context.Context, data *core.ConfigContainer) error {
+func (t AwsSessionProviderTransformer) Transform(ctx context.Context, data core.ConfigContainer) (core.ConfigContainer, error) {
+	output := core.NewConfigContainer()
 	for resourceType, m := range data.DataBags {
 		if resourceType != "aws_credentials_request" {
 			continue
@@ -26,23 +27,26 @@ func (t AwsSessionProviderTransformer) Transform(ctx context.Context, data *core
 				if databag.Value.Type != core.TokenTypeObjectConst {
 					continue
 				}
-				err := populateAwsSession(ctx, data, *databag)
+				existing := data.GetDataBagGroup("aws_credentials", databag.Name)
+				if len(existing) > 0 {
+					continue
+				}
+				newBag, err := populateAwsSession(ctx, databag)
 				if err != nil {
-					return errors.Wrap(err, "error populating aws session")
+					return core.ConfigContainer{}, errors.Wrap(err, "error populating aws session")
+				}
+				err = output.Insert(newBag)
+				if err != nil {
+					return core.ConfigContainer{}, errors.Wrap(err, "error inserting aws credentials")
 				}
 			}
 		}
 	}
 
-	return nil
+	return *output, nil
 }
 
-func populateAwsSession(ctx context.Context, data *core.ConfigContainer, dataBag core.DataBag) error {
-	existing := data.GetDataBagGroup("aws_credentials", dataBag.Name)
-	if len(existing) > 0 {
-		return nil
-	}
-
+func populateAwsSession(ctx context.Context, dataBag core.DataBag) (core.DataBag, error) {
 	var profile *string
 	var region *string
 
@@ -54,7 +58,7 @@ func populateAwsSession(ctx context.Context, data *core.ConfigContainer, dataBag
 		}
 		tmp, err := core.ExtractAsStringValue(profileToken[0])
 		if err != nil {
-			return errors.Wrap(err, "error extracting profile value as string on aws_session_provider")
+			return core.DataBag{}, errors.Wrap(err, "error extracting profile value as string on aws_session_provider")
 		}
 		profile = &tmp
 	}
@@ -66,7 +70,7 @@ func populateAwsSession(ctx context.Context, data *core.ConfigContainer, dataBag
 		}
 		tmp, err := core.ExtractAsStringValue(regionToken[0])
 		if err != nil {
-			return errors.Wrap(err, "error extracting region value as string on aws_session_provider")
+			return core.DataBag{}, errors.Wrap(err, "error extracting region value as string on aws_session_provider")
 		}
 		region = &tmp
 	}
@@ -84,11 +88,11 @@ func populateAwsSession(ctx context.Context, data *core.ConfigContainer, dataBag
 	chown_util.TryAdjustRootHomeDir(ctx)
 	sess, err := session.NewSessionWithOptions(opts)
 	if err != nil {
-		return errors.Wrap(err, "error creating aws session")
+		return core.DataBag{}, errors.Wrap(err, "error creating aws session")
 	}
 	creds, err := sess.Config.Credentials.Get()
 	if err != nil {
-		return errors.Wrap(err, "error getting aws credentials")
+		return core.DataBag{}, errors.Wrap(err, "error getting aws credentials")
 	}
 
 	bag := core.DataBag{
@@ -122,10 +126,5 @@ func populateAwsSession(ctx context.Context, data *core.ConfigContainer, dataBag
 			},
 		},
 	}
-
-	err = data.Insert(bag)
-	if err != nil {
-		return errors.Wrap(err, "error inserting aws credentials")
-	}
-	return nil
+	return bag, nil
 }

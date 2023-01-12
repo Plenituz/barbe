@@ -1,18 +1,14 @@
 package terraform_fmt
 
 import (
+	"barbe/core"
 	"errors"
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/zclconf/go-cty/cty"
 	"reflect"
-	"barbe/core"
 )
-
-func s(s string) *string {
-	return &s
-}
 
 //this is somewhat based on hclwrite.appendTokensForValue
 func syntaxTokenToHclTokens(item core.SyntaxToken, parentName *string) (hclwrite.Tokens, error) {
@@ -147,7 +143,7 @@ func syntaxTokenToHclTokens(item core.SyntaxToken, parentName *string) (hclwrite
 					Bytes: []byte{'='},
 				})
 			}
-			valueTokens, err := syntaxTokenToHclTokens(objConst.Value, s(eKey))
+			valueTokens, err := syntaxTokenToHclTokens(objConst.Value, core.Ptr(eKey))
 			if err != nil {
 				return nil, err
 			}

@@ -1,12 +1,12 @@
 package hcl_parser
 
 import (
+	"barbe/core"
 	"fmt"
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/pkg/errors"
 	"github.com/zclconf/go-cty/cty"
-	"barbe/core"
 )
 
 func hclExpressionToSyntaxToken(expr hclsyntax.Expression) (v *core.SyntaxToken, e error) {
@@ -272,12 +272,12 @@ func parseHclTraversal(traversal hcl.Traversal) ([]core.Traverse, error) {
 		case hcl.TraverseAttr:
 			output = append(output, core.Traverse{
 				Type: core.TraverseTypeAttr,
-				Name: s(mTraverse.Name),
+				Name: core.Ptr(mTraverse.Name),
 			})
 		case hcl.TraverseRoot:
 			output = append(output, core.Traverse{
 				Type: core.TraverseTypeAttr,
-				Name: s(mTraverse.Name),
+				Name: core.Ptr(mTraverse.Name),
 			})
 		case hcl.TraverseIndex:
 			t := core.Traverse{
@@ -329,7 +329,7 @@ func blockToSyntaxToken(block *hclsyntax.Block, includeLabels bool) (token *core
 		for _, l := range block.Labels {
 			labelsToken.ArrayConst = append(labelsToken.ArrayConst, core.SyntaxToken{
 				Type:  core.TokenTypeLiteralValue,
-				Value: s(l),
+				Value: core.Ptr(l),
 			})
 		}
 		m.ObjectConst = append(m.ObjectConst, core.ObjectConstItem{

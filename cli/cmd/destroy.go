@@ -16,11 +16,11 @@ import (
 	"path"
 )
 
-var generateCmd = &cobra.Command{
-	Use:     "generate [GLOB...]",
-	Short:   "Generate files based on the given configuration",
+var destroyCmd = &cobra.Command{
+	Use:     "destroy [GLOB...]",
+	Short:   "Generate files based on the given configuration, and execute all the appliers that will destroy the previously deployed resources",
 	Args:    cobra.ArbitraryArgs,
-	Example: "barbe generate config.hcl --output dist\nbarbe generate **/*.hcl --output dist",
+	Example: "barbe destroy config.hcl\nbarbe destroy **/*.hcl --output dist",
 	Run: func(cmd *cobra.Command, args []string) {
 		if err := viper.BindPFlags(cmd.Flags()); err != nil {
 			panic(err)
@@ -50,11 +50,11 @@ var generateCmd = &cobra.Command{
 			EventProperties: map[string]interface{}{
 				"Files":       fileNames,
 				"FileCount":   len(allFiles),
-				"CurrentStep": "generate",
+				"CurrentStep": "apply",
 			},
 		})
 
-		err = cliutils.IterateDirectories(ctx, core.MakeCommandGenerate, allFiles, func(files []fetcher.FileDescription, ctx context.Context, maker *core.Maker) error {
+		err = cliutils.IterateDirectories(ctx, core.MakeCommandDestroy, allFiles, func(files []fetcher.FileDescription, ctx context.Context, maker *core.Maker) error {
 			container, err := maker.Make(ctx, files)
 			if err != nil {
 				return errors.Wrap(err, "generation failed")
@@ -81,7 +81,7 @@ var generateCmd = &cobra.Command{
 					"Error": err.Error(),
 				},
 			})
-			lg.Error().Err(err).Msg("")
+			log.Ctx(ctx).Error().Err(err).Msg("")
 			return
 		}
 		analytics.QueueEvent(ctx, analytics.AnalyticsEvent{

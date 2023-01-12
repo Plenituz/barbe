@@ -2,6 +2,7 @@ package json_parser
 
 import (
 	"barbe/core"
+	"barbe/core/fetcher"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -18,30 +19,45 @@ func (j JsonParser) Name() string {
 	return "json_parser"
 }
 
-func (j JsonParser) CanParse(ctx context.Context, fileDesc core.FileDescription) (bool, error) {
+func (j JsonParser) CanParse(ctx context.Context, fileDesc fetcher.FileDescription) (bool, error) {
 	return strings.HasSuffix(strings.ToLower(fileDesc.Name), ".json"), nil
 }
 
-func (j JsonParser) Parse(ctx context.Context, fileDesc core.FileDescription, container *core.ConfigContainer) error {
+func (j JsonParser) Parse(ctx context.Context, fileDesc fetcher.FileDescription, container *core.ConfigContainer) error {
 	var raw map[string]interface{}
 	if err := json.Unmarshal(fileDesc.Content, &raw); err != nil {
 		return errors.Wrap(err, "failed to parse json")
 	}
 
 	for typeName, v := range raw {
-		var rawType map[string]interface{}
+		var rawType interface{}
 		if err := mapstructure.Decode(v, &rawType); err != nil {
-			log.Ctx(ctx).Warn().Err(err).Msg("key '" + typeName + "' is not a map")
+			log.Ctx(ctx).Warn().Err(err).Msg("key '" + typeName + "' is not unmarshallable")
 			return errors.Wrap(err, "failed to parse json")
 		}
-
-		for name, tokenI := range rawType {
-			token, err := parsedJsonToToken(tokenI)
+		if mapType, ok := rawType.(map[string]interface{}); ok {
+			for name, tokenI := range mapType {
+				token, err := ParsedJsonToToken(tokenI)
+				if err != nil {
+					return errors.Wrap(err, "failed to parse json")
+				}
+				bag := core.DataBag{
+					Name:   name,
+					Type:   typeName,
+					Labels: []string{},
+					Value:  token,
+				}
+				if err := container.Insert(bag); err != nil {
+					return errors.Wrap(err, "couldn't insert databag")
+				}
+			}
+		} else {
+			token, err := ParsedJsonToToken(rawType)
 			if err != nil {
 				return errors.Wrap(err, "failed to parse json")
 			}
 			bag := core.DataBag{
-				Name:   name,
+				Name:   "",
 				Type:   typeName,
 				Labels: []string{},
 				Value:  token,
@@ -54,7 +70,7 @@ func (j JsonParser) Parse(ctx context.Context, fileDesc core.FileDescription, co
 	return nil
 }
 
-func parsedJsonToToken(v interface{}) (core.SyntaxToken, error) {
+func ParsedJsonToToken(v interface{}) (core.SyntaxToken, error) {
 	if core.InterfaceIsNil(v) {
 		return core.SyntaxToken{
 			Type:  core.TokenTypeLiteralValue,
@@ -66,7 +82,7 @@ func parsedJsonToToken(v interface{}) (core.SyntaxToken, error) {
 	default:
 		return core.SyntaxToken{}, errors.New("cannot decode value of type " + rVal.Type().Kind().String())
 	case reflect.Interface, reflect.Ptr:
-		return parsedJsonToToken(rVal.Elem().Interface())
+		return ParsedJsonToToken(rVal.Elem().Interface())
 	case reflect.Bool,
 		reflect.String,
 		reflect.Int,
@@ -84,7 +100,7 @@ func parsedJsonToToken(v interface{}) (core.SyntaxToken, error) {
 		reflect.Float64,
 		reflect.Complex64,
 		reflect.Complex128:
-		return core.DecodeValue(v)
+		return core.GoValueToToken(v)
 
 	case reflect.Array, reflect.Slice:
 		output := core.SyntaxToken{
@@ -93,7 +109,7 @@ func parsedJsonToToken(v interface{}) (core.SyntaxToken, error) {
 		}
 
 		for i := 0; i < rVal.Len(); i++ {
-			item, err := parsedJsonToToken(rVal.Index(i).Interface())
+			item, err := ParsedJsonToToken(rVal.Index(i).Interface())
 			if err != nil {
 				return core.SyntaxToken{}, errors.Wrap(err, fmt.Sprintf("error decoding index %v of array", i))
 			}
@@ -114,7 +130,7 @@ func parsedJsonToToken(v interface{}) (core.SyntaxToken, error) {
 			if k.Kind() != reflect.String {
 				return core.SyntaxToken{}, errors.New("map key must be string")
 			}
-			item, err := parsedJsonToToken(v.Interface())
+			item, err := ParsedJsonToToken(v.Interface())
 			if err != nil {
 				return core.SyntaxToken{}, errors.Wrap(err, fmt.Sprintf("error decoding map value for key %v", k.String()))
 			}
@@ -139,7 +155,7 @@ func parsedJsonToToken(v interface{}) (core.SyntaxToken, error) {
 			if field.IsNil() || !field.IsValid() {
 				continue
 			}
-			item, err := parsedJsonToToken(field.Interface())
+			item, err := ParsedJsonToToken(field.Interface())
 			if err != nil {
 				return core.SyntaxToken{}, errors.Wrap(err, fmt.Sprintf("error decoding struct value for field %v", fieldName))
 			}

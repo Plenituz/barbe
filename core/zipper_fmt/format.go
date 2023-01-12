@@ -1,12 +1,12 @@
 package zipper_fmt
 
 import (
+	"barbe/core"
 	"context"
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog/log"
 	"os"
 	"path"
-	"barbe/core"
 	"strconv"
 )
 
@@ -16,7 +16,7 @@ func (t ZipperFormatter) Name() string {
 	return "zipper_fmt"
 }
 
-func (t ZipperFormatter) Format(ctx context.Context, data *core.ConfigContainer) error {
+func (t ZipperFormatter) Format(ctx context.Context, data core.ConfigContainer) error {
 	for resourceType, m := range data.DataBags {
 		if resourceType != "zipper" {
 			continue
@@ -34,7 +34,7 @@ func (t ZipperFormatter) Format(ctx context.Context, data *core.ConfigContainer)
 	return nil
 }
 
-func applyZipper(ctx context.Context, databag *core.DataBag) error {
+func applyZipper(ctx context.Context, databag core.DataBag) error {
 	wd, err := os.Getwd()
 	if err != nil {
 		return errors.Wrap(err, "error getting current working directory")

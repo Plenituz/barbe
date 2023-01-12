@@ -52,6 +52,19 @@ func GetMetaBool(token SyntaxToken, key string) bool {
 	return false
 }
 
+func GetMeta[T any](token SyntaxToken, key string) T {
+	var noop T
+	if token.Meta == nil {
+		return noop
+	}
+	if maybe, ok := token.Meta[key]; ok {
+		if definitely, ok := maybe.(T); ok {
+			return definitely
+		}
+	}
+	return noop
+}
+
 func GetObjectKeyValues(key string, pairs []ObjectConstItem) []SyntaxToken {
 	return GetObjectKeysValues(map[string]struct{}{key: {}}, pairs)
 }
@@ -68,8 +81,321 @@ func GetObjectKeysValues(keys map[string]struct{}, pairs []ObjectConstItem) []Sy
 	return tokens
 }
 
+func TraverseDeepEqual(a Traverse, b Traverse) bool {
+	if a.Type != b.Type {
+		return false
+	}
+	switch a.Type {
+	default:
+		fmt.Println("unhandled traverse type: '" + a.Type + "'")
+		return false
+	case TraverseTypeAttr:
+		if a.Name == nil && b.Name == nil {
+			return true
+		}
+		if a.Name == nil || b.Name == nil {
+			return false
+		}
+		return *a.Name == *b.Name
+	case TraverseTypeIndex:
+		return reflect.DeepEqual(a.Index, b.Index)
+	case TraverseTypeSplat:
+		return true
+	}
+}
+
+func ConfigContainerDeepEqual(a ConfigContainer, b ConfigContainer) bool {
+	countA := 0
+	countB := 0
+	for _, m := range a.DataBags {
+		for _, v := range m {
+			countA += len(v)
+		}
+	}
+	for _, m := range b.DataBags {
+		for _, v := range m {
+			countB += len(v)
+		}
+	}
+	if countA != countB {
+		return false
+	}
+	for typeName, databags := range a.DataBags {
+		for databagName, databagGroup := range databags {
+			for _, databag := range databagGroup {
+				if b.Contains(databag) {
+					for _, existingBag := range b.GetDataBagGroup(typeName, databagName) {
+						if !reflect.DeepEqual(existingBag.Labels, databag.Labels) {
+							return false
+						}
+						if existingBag.Value.IsSuperSetOf(databag.Value) {
+							continue
+						}
+						if !TokensDeepEqual(existingBag.Value, databag.Value) {
+							return false
+						}
+					}
+				}
+			}
+		}
+	}
+	return true
+}
+
+func TokensDeepEqual(a SyntaxToken, b SyntaxToken) bool {
+	if a.Type != b.Type {
+		return false
+	}
+	switch a.Type {
+	default:
+		//fmt.Println("unhandled token type: '" + a.Type + "'")
+		return true
+	case TokenTypeLiteralValue:
+		return reflect.DeepEqual(a.Value, b.Value)
+	case TokenTypeScopeTraversal:
+		if len(a.Traversal) != len(b.Traversal) {
+			return false
+		}
+		for i, traverse := range a.Traversal {
+			if !TraverseDeepEqual(traverse, b.Traversal[i]) {
+				return false
+			}
+		}
+		return true
+	case TokenTypeFunctionCall:
+		if *a.FunctionName != *b.FunctionName {
+			return false
+		}
+		if len(a.FunctionArgs) != len(b.FunctionArgs) {
+			return false
+		}
+		for i, arg := range a.FunctionArgs {
+			if !TokensDeepEqual(arg, b.FunctionArgs[i]) {
+				return false
+			}
+		}
+		return true
+	case TokenTypeIndexAccess:
+		if !TokensDeepEqual(*a.IndexCollection, *b.IndexCollection) {
+			return false
+		}
+		if a.IndexKey == nil && b.IndexKey == nil {
+			return true
+		}
+		if a.IndexKey == nil || b.IndexKey == nil {
+			return false
+		}
+		return TokensDeepEqual(*a.IndexKey, *b.IndexKey)
+	case TokenTypeFor:
+		if a.ForKeyVar == nil {
+			if b.ForKeyVar != nil {
+				return false
+			}
+		} else {
+			if b.ForKeyVar == nil {
+				return false
+			}
+			if *a.ForKeyVar != *b.ForKeyVar {
+				return false
+			}
+		}
+		if a.ForValVar == nil {
+			if b.ForValVar != nil {
+				return false
+			}
+		} else {
+			if b.ForValVar == nil {
+				return false
+			}
+			if *a.ForValVar != *b.ForValVar {
+				return false
+			}
+		}
+		if a.ForCollExpr == nil {
+			if b.ForCollExpr != nil {
+				return false
+			}
+		} else {
+			if b.ForCollExpr == nil {
+				return false
+			}
+			if !TokensDeepEqual(*a.ForCollExpr, *b.ForCollExpr) {
+				return false
+			}
+		}
+		if a.ForKeyExpr == nil {
+			if b.ForKeyExpr != nil {
+				return false
+			}
+		} else {
+			if b.ForKeyExpr == nil {
+				return false
+			}
+			if !TokensDeepEqual(*a.ForKeyExpr, *b.ForKeyExpr) {
+				return false
+			}
+		}
+		if a.ForValExpr == nil {
+			if b.ForValExpr != nil {
+				return false
+			}
+		} else {
+			if b.ForValExpr == nil {
+				return false
+			}
+			if !TokensDeepEqual(*a.ForValExpr, *b.ForValExpr) {
+				return false
+			}
+		}
+		if a.ForCondExpr == nil {
+			if b.ForCondExpr != nil {
+				return false
+			}
+		} else {
+			if b.ForCondExpr == nil {
+				return false
+			}
+			if !TokensDeepEqual(*a.ForCondExpr, *b.ForCondExpr) {
+				return false
+			}
+		}
+		return true
+	case TokenTypeRelativeTraversal:
+		if len(a.Traversal) != len(b.Traversal) {
+			return false
+		}
+		for i, traverse := range a.Traversal {
+			if !TraverseDeepEqual(traverse, b.Traversal[i]) {
+				return false
+			}
+		}
+		return TokensDeepEqual(*a.Source, *b.Source)
+	case TokenTypeConditional:
+		if !TokensDeepEqual(*a.Condition, *b.Condition) {
+			return false
+		}
+		if !TokensDeepEqual(*a.TrueResult, *b.TrueResult) {
+			return false
+		}
+		return TokensDeepEqual(*a.FalseResult, *b.FalseResult)
+	case TokenTypeBinaryOp:
+		if *a.Operator != *b.Operator {
+			return false
+		}
+		if !TokensDeepEqual(*a.RightHandSide, *b.RightHandSide) {
+			return false
+		}
+		return TokensDeepEqual(*a.LeftHandSide, *b.LeftHandSide)
+	case TokenTypeUnaryOp:
+		if *a.Operator != *b.Operator {
+			return false
+		}
+		return TokensDeepEqual(*a.RightHandSide, *b.RightHandSide)
+	case TokenTypeSplat:
+		return TokensDeepEqual(*a.SplatEach, *b.SplatEach)
+	case TokenTypeAnonymous:
+		return true
+	case TokenTypeTemplate:
+		if len(a.Parts) != len(b.Parts) {
+			return false
+		}
+		for i, part := range a.Parts {
+			if !TokensDeepEqual(part, b.Parts[i]) {
+				return false
+			}
+		}
+		return true
+	case TokenTypeParens:
+		return TokensDeepEqual(*a.Source, *b.Source)
+	case TokenTypeObjectConst:
+		if len(a.ObjectConst) != len(b.ObjectConst) {
+			return false
+		}
+		obj := make(map[string]SyntaxToken)
+		for _, pair := range a.ObjectConst {
+			obj[pair.Key] = pair.Value
+		}
+		for _, pair := range b.ObjectConst {
+			v, ok := obj[pair.Key]
+			if !ok {
+				return false
+			}
+			if !TokensDeepEqual(v, pair.Value) {
+				return false
+			}
+		}
+		return true
+	case TokenTypeArrayConst:
+		if len(a.ArrayConst) != len(b.ArrayConst) {
+			return false
+		}
+		for i, v := range a.ArrayConst {
+			if !TokensDeepEqual(v, b.ArrayConst[i]) {
+				return false
+			}
+		}
+		return true
+	}
+}
+
+//turn a syntax token into a go value. Returns a partial value if an error occurs when possible
+func TokenToGoValue(token SyntaxToken) (interface{}, error) {
+	switch token.Type {
+	default:
+		return nil, fmt.Errorf("unexpected token type: '%s'", token.Type)
+	case TokenTypeLiteralValue:
+		return token.Value, nil
+	case TokenTypeScopeTraversal,
+		TokenTypeFunctionCall,
+		TokenTypeIndexAccess,
+		TokenTypeFor,
+		TokenTypeRelativeTraversal,
+		TokenTypeConditional,
+		TokenTypeBinaryOp,
+		TokenTypeUnaryOp,
+		TokenTypeSplat,
+		TokenTypeAnonymous:
+		return nil, fmt.Errorf("cannot convert token type '%s' to go value", token.Type)
+	case TokenTypeTemplate:
+		v, err := ExtractAsStringValue(token)
+		if err != nil {
+			return nil, errors.New("cannot convert token type 'template' to go value unless it's resolvable as string")
+		}
+		return v, nil
+	case TokenTypeParens:
+		if token.Source != nil {
+			return TokenToGoValue(*token.Source)
+		}
+		return nil, nil
+	case TokenTypeObjectConst:
+		obj := make(map[string]interface{})
+		var hasErr error
+		for _, pair := range token.ObjectConst {
+			v, err := TokenToGoValue(pair.Value)
+			if err != nil {
+				hasErr = err
+				continue
+			}
+			obj[pair.Key] = v
+		}
+		return obj, hasErr
+	case TokenTypeArrayConst:
+		arr := make([]interface{}, 0, len(token.ArrayConst))
+		var hasErr error
+		for _, item := range token.ArrayConst {
+			v, err := TokenToGoValue(item)
+			if err != nil {
+				hasErr = err
+				continue
+			}
+			arr = append(arr, v)
+		}
+		return arr, hasErr
+	}
+}
+
 //TODO make this function return partial result when there is an error
-func DecodeValue(v interface{}) (SyntaxToken, error) {
+func GoValueToToken(v interface{}) (SyntaxToken, error) {
 	if InterfaceIsNil(v) {
 		return SyntaxToken{
 			Type:  TokenTypeLiteralValue,
@@ -81,7 +407,7 @@ func DecodeValue(v interface{}) (SyntaxToken, error) {
 	default:
 		return SyntaxToken{}, errors.New("cannot decode value of type " + rVal.Type().Kind().String())
 	case reflect.Interface, reflect.Ptr:
-		return DecodeValue(rVal.Elem().Interface())
+		return GoValueToToken(rVal.Elem().Interface())
 	case reflect.Bool,
 		reflect.String,
 		reflect.Int,
@@ -111,7 +437,7 @@ func DecodeValue(v interface{}) (SyntaxToken, error) {
 		}
 
 		for i := 0; i < rVal.Len(); i++ {
-			item, err := DecodeValue(rVal.Index(i).Interface())
+			item, err := GoValueToToken(rVal.Index(i).Interface())
 			if err != nil {
 				return SyntaxToken{}, errors.Wrap(err, fmt.Sprintf("error decoding index %v of array", i))
 			}
@@ -120,8 +446,14 @@ func DecodeValue(v interface{}) (SyntaxToken, error) {
 		return output, nil
 
 	case reflect.Map:
-		if rVal.MapIndex(reflect.ValueOf("Type")).IsValid() {
-			break
+		typeField := rVal.MapIndex(reflect.ValueOf("Type"))
+		if typeField.IsValid() {
+			if typeField.Type().Kind() == reflect.Interface || typeField.Type().Kind() == reflect.Ptr {
+				typeField = typeField.Elem()
+			}
+			if typeField.Kind() == reflect.String && IsTokenType(typeField.String()) {
+				break
+			}
 		}
 
 		output := SyntaxToken{
@@ -139,7 +471,7 @@ func DecodeValue(v interface{}) (SyntaxToken, error) {
 			if k.Kind() != reflect.String {
 				return SyntaxToken{}, errors.New("map key must be string")
 			}
-			item, err := DecodeValue(v.Interface())
+			item, err := GoValueToToken(v.Interface())
 			if err != nil {
 				return SyntaxToken{}, errors.Wrap(err, fmt.Sprintf("error decoding map value for key %v", k.String()))
 			}
@@ -150,9 +482,16 @@ func DecodeValue(v interface{}) (SyntaxToken, error) {
 		}
 		return output, nil
 	case reflect.Struct:
-		if rVal.FieldByName("Type").IsValid() {
-			break
+		typeField := rVal.FieldByName("Type")
+		if typeField.IsValid() {
+			if typeField.Type().Kind() == reflect.Interface || typeField.Type().Kind() == reflect.Ptr {
+				typeField = typeField.Elem()
+			}
+			if typeField.Kind() == reflect.String && IsTokenType(typeField.String()) {
+				break
+			}
 		}
+
 		output := SyntaxToken{
 			Type:        TokenTypeObjectConst,
 			ObjectConst: make([]ObjectConstItem, 0, rVal.Len()),
@@ -167,7 +506,7 @@ func DecodeValue(v interface{}) (SyntaxToken, error) {
 			if field.IsNil() || !field.IsValid() {
 				continue
 			}
-			item, err := DecodeValue(field.Interface())
+			item, err := GoValueToToken(field.Interface())
 			if err != nil {
 				return SyntaxToken{}, errors.Wrap(err, fmt.Sprintf("error decoding struct value for field %v", fieldName))
 			}
@@ -347,4 +686,17 @@ func Visit(ctx context.Context, root *SyntaxToken, visitor Visitor) (*SyntaxToke
 		}
 		return root, nil
 	}
+}
+
+func InterfaceIsNil(i interface{}) bool {
+	if i == nil {
+		return true
+	}
+
+	switch reflect.TypeOf(i).Kind() {
+	case reflect.Ptr, reflect.Map, reflect.Array, reflect.Chan, reflect.Slice:
+		return reflect.ValueOf(i).IsNil()
+	}
+
+	return false
 }
