@@ -1,4 +1,4 @@
-# Barbe's library for Jsonnet templates
+# Barbe's library for Jsonnet components
 
 Article is the reference documentation for the Jsonnet `barbe` library available using `std.extVar("barbe")`
 
