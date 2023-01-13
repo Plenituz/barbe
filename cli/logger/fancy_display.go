@@ -43,6 +43,9 @@ func (f FancyOutput) Write(p []byte) (n int, err error) {
 	case zerolog.ErrorLevel, zerolog.FatalLevel, zerolog.PanicLevel:
 		style = errStyle
 	}
+	if len(text) > 300 {
+		text = text[:300] + "..."
+	}
 	state_display.GlobalState.AddTopLevelLogLine(style.Render(text))
 	return len(p), nil
 }

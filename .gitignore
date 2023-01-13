@@ -1,5 +1,6 @@
 test
 dist/
+barbe_dist/
 bin/
 pkg/
 .idea/

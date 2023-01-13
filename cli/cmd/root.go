@@ -17,7 +17,7 @@ var rootCmd = &cobra.Command{
 func init() {
 	rootCmd.PersistentFlags().String("log-format", "auto", "Log format (auto, plain, json)")
 	rootCmd.PersistentFlags().StringP("log-level", "l", "info", "Log level")
-	rootCmd.PersistentFlags().StringP("output", "o", "dist", "Output directory")
+	rootCmd.PersistentFlags().StringP("output", "o", "barbe_dist", "Output directory")
 	rootCmd.PersistentFlags().Bool("debug-bags", false, "Outputs the resulting databags to the output directory, for debugging purposes")
 
 	if err := viper.BindPFlags(rootCmd.PersistentFlags()); err != nil {

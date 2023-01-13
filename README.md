@@ -115,7 +115,7 @@ Components can easily be designed to allow you to override parts of the generate
 
 To run barbe, you use the `generate` command: 
 ```bash
-barbe generate config.hcl --output dist
+barbe generate config.hcl
 ```
 
 The command works in 4 steps:
