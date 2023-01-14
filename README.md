@@ -24,13 +24,17 @@ As developers, we care about concepts, ideas, like "serverless functions", "java
 Each vendor has their own way of implementing these concepts, and I don't want to learn 5 GCP services just to "deploy my Next.js front end".
 Barbe does the heavy lifting of translating these concepts into vendor specific resources, so you can write `nextjs_hosting` instead of `google_cloud_run_service`, `google_container_registry` and 12 others.
 
+Projects using Barbe:
+- [Barbe-serverless](https://github.com/Plenituz/barbe-serverless): Deploy serverless applications to AWS
+- [Anyfront](https://github.com/Plenituz/anyfront): Deploy any front-end web application on any cloud platform with minimal configuration
+
 ### But it's more than that
 
 Barbe is like the app store for configuration files. The docker hub for computer science concept implementations. 
 You can publish your own definition of `nextjs_hosting`, or use ready-made definitions from the community.
 For any concept you can imagine.
 
-These definitions are written into components (think of it as a template) that generate all the files needed to achieve what you asked for.
+These definitions are written into components (think of it as a template) that generate all the files needed to achieve what you asked for. Barbe also uses [Buildkit](https://github.com/moby/buildkit) to run your deployment commands securely in containers, and making your deployment portable.
 
 <p align="center">
   <img src="./readme_img_1.png" width="400" />
@@ -42,9 +46,6 @@ This approach has lot of advantages:
 - Reduce cost of changing tooling and cloud platforms
 - Easily glue together internal and public toolchains
 - Gracefully handle deprecation of tooling features
-
-Checkout [Barbe-serverless](https://github.com/Plenituz/barbe-serverless) to see how we use Barbe to make it super easy to use AWS
-serverless resources (backed by Terraform)
 
 > Barbe is in pretty early stage, be on the lookout for breaking changes, and come have fun with it!
 
