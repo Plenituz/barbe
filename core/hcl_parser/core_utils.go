@@ -322,20 +322,7 @@ func blockToSyntaxToken(block *hclsyntax.Block, includeLabels bool) (token *core
 		})
 	}
 	if includeLabels {
-		labelsToken := core.SyntaxToken{
-			Type:       core.TokenTypeArrayConst,
-			ArrayConst: make([]core.SyntaxToken, 0, len(block.Labels)),
-		}
-		for _, l := range block.Labels {
-			labelsToken.ArrayConst = append(labelsToken.ArrayConst, core.SyntaxToken{
-				Type:  core.TokenTypeLiteralValue,
-				Value: core.Ptr(l),
-			})
-		}
-		m.ObjectConst = append(m.ObjectConst, core.ObjectConstItem{
-			Key:   "labels",
-			Value: labelsToken,
-		})
+		m.Meta["Labels"] = block.Labels
 	}
 
 	subBlocks := map[string][]core.SyntaxToken{}

@@ -15,9 +15,11 @@ import (
 	"barbe/core/simplifier_transform"
 	"barbe/core/terraform_fmt"
 	"barbe/core/traversal_manipulator"
+	"barbe/core/wasm"
 	"barbe/core/zipper_fmt"
 	"context"
 	"github.com/pkg/errors"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/viper"
 	"io/fs"
@@ -66,7 +68,7 @@ func IterateDirectories(ctx context.Context, command core.MakeCommand, allFiles 
 			}
 			log.Ctx(ctx).Debug().Msg("with files: [" + strings.Join(fileNames, ", ") + "]")
 
-			maker := makeMaker(command, path.Join(viper.GetString("output"), dir))
+			maker := makeMaker(ctx, command, path.Join(viper.GetString("output"), dir))
 
 			if os.Getenv("BARBE_LOCAL") != "" {
 				localDirs := strings.Split(os.Getenv("BARBE_LOCAL"), ":")
@@ -130,13 +132,20 @@ func IterateDirectories(ctx context.Context, command core.MakeCommand, allFiles 
 			}
 
 			allPaths := make([]string, 0)
-			defer chown_util.TryRectifyRootFiles(innerCtx, allPaths)
 			err = filepath.WalkDir(maker.OutputDir, func(path string, d fs.DirEntry, err error) error {
 				allPaths = append(allPaths, path)
 				return nil
 			})
 			if err != nil {
 				return err
+			}
+			chown_util.TryRectifyRootFiles(innerCtx, allPaths)
+
+			if command == core.MakeCommandDestroy {
+				err = os.RemoveAll(maker.OutputDir)
+				if err != nil {
+					log.Ctx(ctx).Warn().Err(err).Msg("failed to remove output dir after destroy")
+				}
 			}
 			return nil
 		}()
@@ -207,7 +216,7 @@ func groupFilesByDirectory(files []fetcher.FileDescription) map[string][]fetcher
 	return result
 }
 
-func makeMaker(command core.MakeCommand, dir string) *core.Maker {
+func makeMaker(ctx context.Context, command core.MakeCommand, dir string) *core.Maker {
 	maker := core.NewMaker(command)
 	maker.OutputDir = dir
 	maker.Parsers = []core.Parser{
@@ -218,6 +227,8 @@ func makeMaker(command core.MakeCommand, dir string) *core.Maker {
 		//hcl_templater.HclTemplater{},
 		//cue_templater.CueTemplater{},
 		jsonnet_templater.JsonnetTemplater{},
+		wasm.NewWasmTemplater(*zerolog.Ctx(ctx)),
+		wasm.NewSpiderMonkeyTemplater(*zerolog.Ctx(ctx), dir),
 	}
 	maker.Transformers = []core.Transformer{
 		//the simplifier being first is very important, it simplifies syntax that is equivalent

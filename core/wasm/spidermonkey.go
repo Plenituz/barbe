@@ -4,14 +4,16 @@ import (
 	"bufio"
 	"context"
 	_ "embed"
-	"encoding/json"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog"
 	"github.com/tetratelabs/wazero"
+	"github.com/tetratelabs/wazero/experimental"
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
 	"os"
+	"path"
 	"sync"
+	"time"
 )
 
 //https://spidermonkey.dev/
@@ -26,99 +28,85 @@ var spiderMonkey []byte
 type SpiderMonkeyExecutor struct {
 	logger zerolog.Logger
 
-	Protocol RpcProtocol
-
-	wasmRuntime      wazero.Runtime
-	spiderMonkeyCode wazero.CompiledModule
+	wasmRuntimeIntepreter       wazero.Runtime
+	wasmRuntimeCompiled         wazero.Runtime
+	spiderMonkeyCodeInterpreter wazero.CompiledModule
+	spiderMonkeyCodeCompiled    wazero.CompiledModule
 
 	ctx        context.Context
 	cancel     context.CancelFunc
 	wgAllExecs sync.WaitGroup
 }
 
-func NewSpiderMonkeyExecutor(logger zerolog.Logger) (*SpiderMonkeyExecutor, error) {
+func NewSpiderMonkeyExecutor(logger zerolog.Logger, outputDir string) (*SpiderMonkeyExecutor, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	r := wazero.NewRuntimeWithConfig(ctx, wazero.NewRuntimeConfigInterpreter())
-	wasi_snapshot_preview1.MustInstantiate(ctx, r)
-	//assemblyscript.MustInstantiate(ctx, r)
+	exec := &SpiderMonkeyExecutor{
+		logger:     logger,
+		cancel:     cancel,
+		wgAllExecs: sync.WaitGroup{},
+	}
 
-	//this takes a while
-	spiderMonkeyCode, err := r.CompileModule(ctx, spiderMonkey)
+	cacheDir := path.Join(outputDir, "wazero_cache")
+	if _, err := os.Stat(cacheDir); !os.IsNotExist(err) {
+		ctx, err = experimental.WithCompilationCacheDirName(ctx, cacheDir)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to set wazero cache dir")
+		}
+		compiledRuntime := wazero.NewRuntime(ctx)
+		wasi_snapshot_preview1.MustInstantiate(ctx, compiledRuntime)
+
+		spiderMonkeyCompiled, err := compiledRuntime.CompileModule(ctx, spiderMonkey)
+		if err != nil {
+			logger.Error().Err(err).Msg("error compiling spidermonkey")
+		}
+		exec.wasmRuntimeCompiled = compiledRuntime
+		exec.spiderMonkeyCodeCompiled = spiderMonkeyCompiled
+		exec.ctx = ctx
+		return exec, nil
+	}
+
+	interpreter := wazero.NewRuntimeWithConfig(ctx, wazero.NewRuntimeConfigInterpreter())
+	wasi_snapshot_preview1.MustInstantiate(ctx, interpreter)
+
+	//this takes a while but is way faster than the compiled version
+	spiderMonkeyInterpreter, err := interpreter.CompileModule(ctx, spiderMonkey)
 	if err != nil {
 		cancel()
-		return nil, errors.Wrap(err, "error compiling spidermonkey")
+		return nil, errors.Wrap(err, "error compiling spidermonkey (interpreter)")
 	}
 
-	return &SpiderMonkeyExecutor{
-		logger:           logger,
-		wasmRuntime:      r,
-		spiderMonkeyCode: spiderMonkeyCode,
-		ctx:              ctx,
-		cancel:           cancel,
-		wgAllExecs:       sync.WaitGroup{},
-		Protocol: RpcProtocol{
-			logger:              logger,
-			RegisteredFunctions: map[string]RpcFunc{},
-		},
-	}, nil
-}
+	exec.ctx = ctx
+	exec.wasmRuntimeIntepreter = interpreter
+	exec.spiderMonkeyCodeInterpreter = spiderMonkeyInterpreter
 
-func handleJsMessage(text []byte, logger zerolog.Logger, registeredFunctions map[string]func(args []any) (any, error), stdinWriter *os.File) {
-	var req rpcRequest
-	err := json.Unmarshal(text, &req)
-	//all logs arrive here, so if we cant parse it, it's probably just a log
-	if err != nil {
-		logger.Debug().Msgf("js: %s", string(text))
-		return
-	}
-	if req.Method == "" {
-		logger.Debug().Msgf("js: %s", string(text))
-		return
-	}
-	f, ok := registeredFunctions[req.Method]
-	if !ok {
-		logger.Debug().Msgf("js: %s", string(text))
-		return
-	}
-
-	result, err := f(req.Params)
-	if err != nil {
-		logger.Error().Str("req", string(text)).Err(err).Msgf("error executing js called function '%s'", req.Method)
-		resp, err := json.Marshal(rpcResponse{
-			Error: err.Error(),
-		})
+	go func() {
+		ctx, err = experimental.WithCompilationCacheDirName(ctx, cacheDir)
 		if err != nil {
-			logger.Error().Err(err).Msg("error marshaling error response to js called function")
+			logger.Error().Err(err).Msg("failed to set wazero cache dir")
 			return
 		}
-		_, err = stdinWriter.WriteString(string(resp) + "\n")
-		if err != nil {
-			logger.Error().Err(err).Msg("error writing error response to js called function")
-			return
-		}
-		return
-	}
+		compiledRuntime := wazero.NewRuntime(ctx)
+		wasi_snapshot_preview1.MustInstantiate(ctx, compiledRuntime)
 
-	resp, err := json.Marshal(rpcResponse{
-		Result: result,
-	})
-	if err != nil {
-		logger.Error().Err(err).Msg("error marshaling success response to js called function")
-		return
-	}
-	_, err = stdinWriter.WriteString(string(resp) + "\n")
-	if err != nil {
-		logger.Error().Err(err).Msg("error writing success response to js called function")
-		return
-	}
+		spiderMonkeyCompiled, err := compiledRuntime.CompileModule(ctx, spiderMonkey)
+		if err != nil {
+			logger.Error().Err(err).Msg("error compiling spidermonkey")
+		}
+		exec.wasmRuntimeCompiled = compiledRuntime
+		exec.spiderMonkeyCodeCompiled = spiderMonkeyCompiled
+		exec.ctx = ctx
+	}()
+
+	return exec, nil
 }
 
-func (s *SpiderMonkeyExecutor) Execute(jsContent []byte) error {
+func (s *SpiderMonkeyExecutor) Execute(protocol RpcProtocol, fileName string, jsContent []byte, input []byte) error {
 	s.wgAllExecs.Add(1)
 	defer s.wgAllExecs.Done()
 	fakeFs := semiRealFs{
-		"__barbe_index.js": {Data: jsContent},
+		fileName:             {Data: jsContent},
+		"__barbe_input.json": {Data: input},
 	}
 
 	stdinReader, stdinWriter, err := os.Pipe()
@@ -160,7 +148,7 @@ func (s *SpiderMonkeyExecutor) Execute(jsContent []byte) error {
 				if !ok {
 					return
 				}
-				resp, err := s.Protocol.HandleMessage(line)
+				resp, err := protocol.HandleMessage(line)
 				if err != nil {
 					s.logger.Error().Err(err).Msg("error handling rpc message")
 					continue
@@ -183,10 +171,19 @@ func (s *SpiderMonkeyExecutor) Execute(jsContent []byte) error {
 		WithStdout(stdoutWriter).
 		WithStderr(os.Stderr).
 		WithFS(fakeFs).
-		WithArgs("js", "-f", "__barbe_index.js").
+		WithArgs("js", "-f", fileName).
 		WithName(uuid.NewString())
 
-	mod, err := s.wasmRuntime.InstantiateModule(s.ctx, s.spiderMonkeyCode, config)
+	runtime := s.wasmRuntimeIntepreter
+	spiderMonkeyCode := s.spiderMonkeyCodeInterpreter
+	if s.wasmRuntimeCompiled != nil && s.spiderMonkeyCodeCompiled != nil {
+		runtime = s.wasmRuntimeCompiled
+		spiderMonkeyCode = s.spiderMonkeyCodeCompiled
+	}
+
+	t := time.Now()
+	mod, err := runtime.InstantiateModule(s.ctx, spiderMonkeyCode, config)
+	s.logger.Debug().Msgf("'%s' execution took, %s", fileName, time.Since(t))
 	if err != nil {
 		//fmt.Println("error:", err)
 		return errors.Wrap(err, "error instantiating module")
@@ -206,5 +203,17 @@ func (s *SpiderMonkeyExecutor) Execute(jsContent []byte) error {
 func (s *SpiderMonkeyExecutor) Close() error {
 	s.cancel()
 	s.wgAllExecs.Wait()
+	if s.spiderMonkeyCodeInterpreter != nil {
+		s.spiderMonkeyCodeInterpreter.Close(s.ctx)
+	}
+	if s.spiderMonkeyCodeCompiled != nil {
+		s.spiderMonkeyCodeCompiled.Close(s.ctx)
+	}
+	if s.spiderMonkeyCodeInterpreter != nil {
+		s.spiderMonkeyCodeInterpreter.Close(s.ctx)
+	}
+	if s.spiderMonkeyCodeCompiled != nil {
+		s.spiderMonkeyCodeCompiled.Close(s.ctx)
+	}
 	return nil
 }

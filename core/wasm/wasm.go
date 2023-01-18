@@ -16,8 +16,6 @@ import (
 type WasmExecutor struct {
 	logger zerolog.Logger
 
-	Protocol RpcProtocol
-
 	wasmRuntime wazero.Runtime
 
 	ctx        context.Context
@@ -38,14 +36,6 @@ func NewWasmExecutor(logger zerolog.Logger) *WasmExecutor {
 		ctx:         ctx,
 		cancel:      cancel,
 		wgAllExecs:  sync.WaitGroup{},
-		Protocol: RpcProtocol{
-			logger: logger,
-			RegisteredFunctions: map[string]func(args []any) (any, error){
-				"add": func(args []any) (any, error) {
-					return args[0].(float64) + args[1].(float64), nil
-				},
-			},
-		},
 	}
 }
 
@@ -53,7 +43,7 @@ func (s *WasmExecutor) Compile(wasmContent []byte) (wazero.CompiledModule, error
 	return s.wasmRuntime.CompileModule(s.ctx, wasmContent)
 }
 
-func (s *WasmExecutor) Execute(compiledCode wazero.CompiledModule) error {
+func (s *WasmExecutor) Execute(compiledCode wazero.CompiledModule, protocol RpcProtocol, input []byte) error {
 	s.wgAllExecs.Add(1)
 	defer s.wgAllExecs.Done()
 
@@ -96,7 +86,7 @@ func (s *WasmExecutor) Execute(compiledCode wazero.CompiledModule) error {
 				if !ok {
 					return
 				}
-				resp, err := s.Protocol.HandleMessage(line)
+				resp, err := protocol.HandleMessage(line)
 				if err != nil {
 					s.logger.Error().Err(err).Msg("error handling rpc message")
 					continue
