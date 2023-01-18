@@ -4,7 +4,7 @@
 # This script builds the application from source for multiple platforms.
 
 # Determine the arch/os combos we're building for
-XC_ARCH=${XC_ARCH:-"386 amd64 arm"}
+XC_ARCH=${XC_ARCH:-"386 amd64 arm arm64"}
 XC_OS=${XC_OS:-linux darwin windows freebsd}
 XC_EXCLUDE_OSARCH=""
 

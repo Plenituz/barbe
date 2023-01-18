@@ -303,7 +303,7 @@ template {
 
 Then we can run
 ```bash
-barbe generate config.hcl --output dist
+barbe generate config.hcl
 ```
 
 Our file should be created in the `dist` directory
@@ -311,7 +311,7 @@ Our file should be created in the `dist` directory
 # dist
 # └── my_raw_file.txt
 
-cat dist/my_raw_file.txt
+cat barbe_dist/my_raw_file.txt
 # Hello world!
 ```
 
@@ -344,7 +344,7 @@ This updated template will create a file named `my_raw_file.json` with the conte
 This allows us to see what we're getting as an input, running `barbe generate` again will yield this json file
 
 ```json
-# dist/my_raw_file.json
+# barbe_dist/my_raw_file.json
 {
     "template": {
         "": [
@@ -406,7 +406,7 @@ local container = std.extVar("container");
 ```
 
 ```json
-# dist/bob.json
+# barbe_dist/bob.json
 {"job": "developer", "username": "bob"}
 ```
 
