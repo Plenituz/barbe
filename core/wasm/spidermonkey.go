@@ -1,19 +1,25 @@
 package wasm
 
 import (
+	"barbe/core/chown_util"
+	"barbe/core/version"
 	"bufio"
 	"context"
 	_ "embed"
 	"github.com/google/uuid"
+	"github.com/mitchellh/go-homedir"
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog"
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/experimental"
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
 	"os"
-	"path"
 	"sync"
 	"time"
+)
+
+const (
+	wazeroCachePath = "~/.cache/barbe/spidermonkey_for_" + version.Version
 )
 
 //https://spidermonkey.dev/
@@ -47,7 +53,11 @@ func NewSpiderMonkeyExecutor(logger zerolog.Logger, outputDir string) (*SpiderMo
 		wgAllExecs: sync.WaitGroup{},
 	}
 
-	cacheDir := path.Join(outputDir, "wazero_cache")
+	cacheDir, err := homedir.Expand(wazeroCachePath)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to expand wazero cache path")
+	}
+
 	if _, err := os.Stat(cacheDir); !os.IsNotExist(err) {
 		ctx, err = experimental.WithCompilationCacheDirName(ctx, cacheDir)
 		if err != nil {
@@ -63,6 +73,7 @@ func NewSpiderMonkeyExecutor(logger zerolog.Logger, outputDir string) (*SpiderMo
 		exec.wasmRuntimeCompiled = compiledRuntime
 		exec.spiderMonkeyCodeCompiled = spiderMonkeyCompiled
 		exec.ctx = ctx
+		chown_util.TryRectifyRootFiles(ctx, []string{cacheDir})
 		return exec, nil
 	}
 

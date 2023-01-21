@@ -3,9 +3,9 @@ package wasm
 import (
 	"barbe/core"
 	"barbe/core/fetcher"
+	"barbe/core/import_component"
 	"context"
 	"encoding/json"
-	"fmt"
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog"
 	"github.com/tetratelabs/wazero"
@@ -22,6 +22,28 @@ var rpcFuncBase = map[string]RpcFunc{
 		time.Sleep(time.Duration(millis) * time.Millisecond)
 		return nil, nil
 	},
+}
+
+func importComponentTemplate(ctx context.Context) RpcFunc {
+	return func(args []any) (any, error) {
+		importer := import_component.NewComponentImporter()
+		decodedBags, err := decodeSugarCoatedDatabags(args[0])
+		if err != nil {
+			return nil, err
+		}
+		input := core.NewConfigContainer()
+		for _, bag := range decodedBags {
+			err = input.Insert(bag)
+			if err != nil {
+				return nil, err
+			}
+		}
+		output, err := importer.Transform(ctx, *input)
+		if err != nil {
+			return nil, err
+		}
+		return output.DataBags, nil
+	}
 }
 
 type WasmTemplater struct {
@@ -70,7 +92,16 @@ func (h *WasmTemplater) executeWasm(ctx context.Context, maker *core.Maker, inpu
 
 	funcs := map[string]RpcFunc{
 		"exportDatabags": func(args []any) (any, error) {
-			fmt.Println("exportDatabags", args)
+			decodedBags, err := decodeSugarCoatedDatabags(args[0])
+			if err != nil {
+				return nil, err
+			}
+			for _, bag := range decodedBags {
+				err = output.Insert(bag)
+				if err != nil {
+					return nil, errors.Wrap(err, "failed to insert databag")
+				}
+			}
 			return nil, nil
 		},
 	}

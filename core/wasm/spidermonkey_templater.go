@@ -26,6 +26,35 @@ type SpiderMonkeyTemplater struct {
 	wg       *sync.WaitGroup
 }
 
+func decodeSugarCoatedDatabags(databags interface{}) ([]core.DataBag, error) {
+	var parsedPipelineItem struct {
+		Databags []sugarBag `mapstructure:"databags"`
+	}
+	err := mapstructure.Decode(databags, &parsedPipelineItem)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to decode databags")
+	}
+	output := make([]core.DataBag, 0, len(parsedPipelineItem.Databags))
+	for _, bag := range parsedPipelineItem.Databags {
+		token, err := core.GoValueToToken(bag.Value)
+		if err != nil {
+			return nil, errors.Wrap(err, "error decoding syntax token from jsonnet template")
+		}
+
+		if bag.Labels == nil {
+			bag.Labels = []string{}
+		}
+		realBag := core.DataBag{
+			Name:   bag.Name,
+			Type:   bag.Type,
+			Labels: bag.Labels,
+			Value:  token,
+		}
+		output = append(output, realBag)
+	}
+	return output, nil
+}
+
 func NewSpiderMonkeyTemplater(logger zerolog.Logger, outputDir string) *SpiderMonkeyTemplater {
 	wg := &sync.WaitGroup{}
 	templater := &SpiderMonkeyTemplater{
@@ -79,28 +108,11 @@ func (h *SpiderMonkeyTemplater) executeJs(ctx context.Context, maker *core.Maker
 
 	funcs := map[string]RpcFunc{
 		"exportDatabags": func(args []any) (any, error) {
-			var parsedPipelineItem struct {
-				Databags []sugarBag `mapstructure:"databags"`
-			}
-			err := mapstructure.Decode(args[0], &parsedPipelineItem)
+			decodedBags, err := decodeSugarCoatedDatabags(args[0])
 			if err != nil {
-				return nil, errors.Wrap(err, "failed to decode databags")
+				return nil, err
 			}
-			for _, bag := range parsedPipelineItem.Databags {
-				token, err := core.GoValueToToken(bag.Value)
-				if err != nil {
-					return nil, errors.Wrap(err, "error decoding syntax token from jsonnet template")
-				}
-
-				if bag.Labels == nil {
-					bag.Labels = []string{}
-				}
-				bag := core.DataBag{
-					Name:   bag.Name,
-					Type:   bag.Type,
-					Labels: bag.Labels,
-					Value:  token,
-				}
+			for _, bag := range decodedBags {
 				err = output.Insert(bag)
 				if err != nil {
 					return nil, errors.Wrap(err, "failed to insert databag")
@@ -108,6 +120,7 @@ func (h *SpiderMonkeyTemplater) executeJs(ctx context.Context, maker *core.Maker
 			}
 			return nil, nil
 		},
+		"importComponents": importComponentTemplate(ctx),
 	}
 	for k, v := range rpcFuncBase {
 		funcs[k] = v
