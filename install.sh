@@ -1,7 +1,11 @@
 #!/bin/sh
 
 # to run this:
+# on mac:
 # cd /usr/local && curl -L https://hub.barbe.app/install.sh | sh
+# on linux:
+# cd /usr/local && curl -L https://hub.barbe.app/install.sh | sudo sh
+# it will prompt you for you password without writing anything
 
 set -e
 
