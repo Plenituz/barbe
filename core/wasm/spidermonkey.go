@@ -112,7 +112,7 @@ func NewSpiderMonkeyExecutor(logger zerolog.Logger, outputDir string) (*SpiderMo
 	return exec, nil
 }
 
-func (s *SpiderMonkeyExecutor) Execute(protocol RpcProtocol, fileName string, jsContent []byte, input []byte) error {
+func (s *SpiderMonkeyExecutor) Execute(protocol RpcProtocol, fileName string, jsContent []byte, input []byte, envVars map[string]string) error {
 	s.wgAllExecs.Add(1)
 	defer s.wgAllExecs.Done()
 	fakeFs := semiRealFs{
@@ -184,6 +184,10 @@ func (s *SpiderMonkeyExecutor) Execute(protocol RpcProtocol, fileName string, js
 		WithFS(fakeFs).
 		WithArgs("js", "-f", fileName).
 		WithName(uuid.NewString())
+
+	for k, v := range envVars {
+		config = config.WithEnv(k, v)
+	}
 
 	runtime := s.wasmRuntimeIntepreter
 	spiderMonkeyCode := s.spiderMonkeyCodeInterpreter

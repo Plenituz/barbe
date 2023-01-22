@@ -103,17 +103,18 @@ func (t *ComponentImporter) Transform(ctx context.Context, data core.ConfigConta
 					}
 				}
 
-				if pastBags, ok := t.alreadyImported[databag.Name]; ok {
+				executeId := core.ContextScopeKey(ctx) + databag.Name
+				if pastBags, ok := t.alreadyImported[executeId]; ok {
 					for _, pastBag := range pastBags {
 						if core.ConfigContainerDeepEqual(pastBag, *input) {
 							continue LOOP
 						}
 					}
 				}
-				if _, ok := t.alreadyImported[databag.Name]; !ok {
-					t.alreadyImported[databag.Name] = []core.ConfigContainer{}
+				if _, ok := t.alreadyImported[executeId]; !ok {
+					t.alreadyImported[executeId] = []core.ConfigContainer{}
 				}
-				t.alreadyImported[databag.Name] = append(t.alreadyImported[databag.Name], *input.Clone())
+				t.alreadyImported[executeId] = append(t.alreadyImported[databag.Name], *input.Clone())
 
 				componentUrlTokens := core.GetObjectKeyValues("url", databag.Value.ObjectConst)
 				if len(componentUrlTokens) == 0 {

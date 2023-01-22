@@ -130,7 +130,12 @@ func (h *SpiderMonkeyTemplater) executeJs(ctx context.Context, maker *core.Maker
 		RegisteredFunctions: funcs,
 	}
 
-	err = h.executor.Execute(protocol, path.Base(template.Name), template.Content, ctxObjJson)
+	envVars := map[string]string{
+		"BARBE_COMMAND":        maker.Command,
+		"BARBE_LIFECYCLE_STEP": maker.CurrentStep,
+		"BARBE_OUTPUT_DIR":     maker.OutputDir,
+	}
+	err = h.executor.Execute(protocol, path.Base(template.Name), template.Content, ctxObjJson, envVars)
 	if err != nil {
 		return errors.Wrap(err, "failed to execute wasm for '"+template.Name+"'")
 	}
