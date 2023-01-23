@@ -14,6 +14,9 @@ import (
 type LiveRunnerProgress struct {
 	LogLevel zerolog.Level
 
+	tickerStopped bool
+	ticker        *time.Ticker
+
 	w     *uilive.Writer
 	lines []io.Writer
 
@@ -60,13 +63,13 @@ func (p *LiveRunnerProgress) Close() {
 
 func (p *LiveRunnerProgress) printWorker() {
 	defer p.waitGroup.Done()
-	ticker := time.NewTicker(300 * time.Millisecond)
+	p.ticker = time.NewTicker(300 * time.Millisecond)
 	for {
 		select {
 		case <-p.ctx.Done():
 			p.printTasks()
 			return
-		case <-ticker.C:
+		case <-p.ticker.C:
 		}
 		p.printTasks()
 	}
@@ -76,6 +79,16 @@ func (p *LiveRunnerProgress) printTasks() {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	defer p.w.Flush()
+
+	if p.display.Prompt != nil {
+		if len(p.lines) == 0 {
+			p.lines = append(p.lines, p.w.Newline())
+		}
+		p.lines[0].Write([]byte(*p.display.Prompt + "\n"))
+		p.ticker.Stop()
+		p.tickerStopped = true
+		return
+	}
 
 	msg := viewTasks(p.display, p.LogLevel)
 	lines := strings.Split(msg, "\n")
@@ -88,9 +101,4 @@ func (p *LiveRunnerProgress) printTasks() {
 		}
 		p.lines[i].Write([]byte(line + "\n"))
 	}
-	//print empty lines to clear the rest of the screen
-	//for i := len(lines); i < len(p.lines); i++ {
-	//	p.lines[i].Write([]byte("\n"))
-	//}
-
 }

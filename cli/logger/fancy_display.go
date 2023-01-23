@@ -37,13 +37,16 @@ func (f FancyOutput) Write(p []byte) (n int, err error) {
 	if event.Error != "" {
 		text = event.Error
 	}
+	truncate := event.Error == ""
 	switch l, _ := zerolog.ParseLevel(event.Level); l {
 	case zerolog.WarnLevel:
+		truncate = false
 		style = warnStyle
 	case zerolog.ErrorLevel, zerolog.FatalLevel, zerolog.PanicLevel:
+		truncate = false
 		style = errStyle
 	}
-	if len(text) > 300 {
+	if truncate && len(text) > 300 {
 		text = text[:300] + "..."
 	}
 	state_display.GlobalState.AddTopLevelLogLine(style.Render(text))
@@ -187,6 +190,10 @@ func StartFancyDisplay(logger zerolog.Logger) func() {
 	pg.Start()
 	state_display.GlobalState.OnStateDisplayChanged = func(display state_display.StateDisplay) {
 		pg.UpdateState(display)
+		if display.Prompt == nil && pg.tickerStopped {
+			pg.tickerStopped = false
+			pg.ticker.Reset(300 * time.Millisecond)
+		}
 	}
 	return pg.Close
 }

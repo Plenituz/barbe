@@ -130,3 +130,14 @@ func TryAdjustRootHomeDir(ctx context.Context) {
 		log.Ctx(ctx).Debug().Err(err).Msg("error setting home dir")
 	}
 }
+
+func GetSudoerUser() (uid int, gid int, e error) {
+	err := populateUsers()
+	if err != nil {
+		return -1, -1, err
+	}
+	if realUser == nil {
+		return -1, -1, nil
+	}
+	return realUser.uid, realUser.gid, nil
+}

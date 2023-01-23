@@ -65,6 +65,18 @@ func GetMeta[T any](token SyntaxToken, key string) T {
 	return noop
 }
 
+// This is useful for complex types like structs or string slices.
+// it uses mapstructure to decode the value into the given type, instead of a type assertion
+func GetMetaComplexType[T any](token SyntaxToken, key string) T {
+	var noop T
+	if token.Meta == nil {
+		return noop
+	}
+	//whatever happens, happens
+	_ = mapstructure.Decode(token.Meta[key], &noop)
+	return noop
+}
+
 func GetObjectKeyValues(key string, pairs []ObjectConstItem) []SyntaxToken {
 	return GetObjectKeysValues(map[string]struct{}{key: {}}, pairs)
 }

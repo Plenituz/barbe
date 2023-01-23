@@ -120,7 +120,8 @@ func (h *SpiderMonkeyTemplater) executeJs(ctx context.Context, maker *core.Maker
 			}
 			return nil, nil
 		},
-		"importComponents": importComponentTemplate(ctx),
+		"importComponents":   importComponentTemplate(ctx),
+		"transformContainer": transformContainerTemplate(ctx),
 	}
 	for k, v := range rpcFuncBase {
 		funcs[k] = v
@@ -135,7 +136,14 @@ func (h *SpiderMonkeyTemplater) executeJs(ctx context.Context, maker *core.Maker
 		"BARBE_LIFECYCLE_STEP": maker.CurrentStep,
 		"BARBE_OUTPUT_DIR":     maker.OutputDir,
 	}
-	err = h.executor.Execute(protocol, path.Base(template.Name), template.Content, ctxObjJson, envVars)
+
+	state := maker.StateHandler.GetState(core.ContextScopeKey(ctx))
+	stateJson, err := json.Marshal(state)
+	if err != nil {
+		return errors.Wrap(err, "failed to marshal state object")
+	}
+
+	err = h.executor.Execute(protocol, path.Base(template.Name), template.Content, ctxObjJson, envVars, stateJson)
 	if err != nil {
 		return errors.Wrap(err, "failed to execute wasm for '"+template.Name+"'")
 	}

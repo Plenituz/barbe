@@ -112,12 +112,13 @@ func NewSpiderMonkeyExecutor(logger zerolog.Logger, outputDir string) (*SpiderMo
 	return exec, nil
 }
 
-func (s *SpiderMonkeyExecutor) Execute(protocol RpcProtocol, fileName string, jsContent []byte, input []byte, envVars map[string]string) error {
+func (s *SpiderMonkeyExecutor) Execute(protocol RpcProtocol, fileName string, jsContent []byte, input []byte, envVars map[string]string, state []byte) error {
 	s.wgAllExecs.Add(1)
 	defer s.wgAllExecs.Done()
 	fakeFs := semiRealFs{
 		fileName:             {Data: jsContent},
 		"__barbe_input.json": {Data: input},
+		"__barbe_state.json": {Data: state},
 	}
 
 	stdinReader, stdinWriter, err := os.Pipe()

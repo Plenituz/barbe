@@ -2,6 +2,7 @@ package buildkit_runner
 
 import (
 	"archive/tar"
+	"barbe/cli/logger"
 	"barbe/core"
 	"barbe/core/buildkit_runner/buildkit_status"
 	"barbe/core/buildkit_runner/buildkitd"
@@ -13,7 +14,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"github.com/containerd/containerd/platforms"
 	gitioutil "github.com/go-git/go-git/v5/utils/ioutil"
 	bk "github.com/moby/buildkit/client"
@@ -480,16 +480,16 @@ func executeRunner(ctx context.Context, executable runnerExecutable, output *cor
 		}
 	}
 	if executable.Message != "" {
-		log.Ctx(ctx).Info().Msg(executable.Message)
-	}
-	if executable.RequireConfirmation {
-		var resp string
-		_, err := fmt.Scanln(&resp)
-		if err != nil {
-			return errors.Wrap(err, "couldn't read input")
-		}
-		if resp != "yes" {
-			return nil
+		if executable.RequireConfirmation {
+			resp, err := logger.PromptUser(ctx, executable.Message)
+			if err != nil {
+				return errors.Wrap(err, "error prompting user")
+			}
+			if resp != "yes" {
+				return nil
+			}
+		} else {
+			log.Ctx(ctx).Info().Msg(executable.Message)
 		}
 	}
 

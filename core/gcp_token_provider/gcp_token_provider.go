@@ -1,26 +1,41 @@
 package gcp_token_provider
 
 import (
+	"barbe/cli/logger"
 	"barbe/core"
 	"barbe/core/chown_util"
+	"barbe/core/gcp_token_provider/browser"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"github.com/mitchellh/go-homedir"
-	"github.com/pkg/browser"
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/oauth2"
 	googleoauth "golang.org/x/oauth2/google"
 	"io/ioutil"
 	"math/rand"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
+	"os/user"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
+	"syscall"
+	"time"
+)
+
+const (
+	gcloudCliDefaultClientId     = "764086051850-6qr4p6gpi6hn506pt8ejuq83di341hur.apps.googleusercontent.com"
+	gcloudCliDefaultClientSecret = "d-FL95Q19q7MQmFpd7hHD0Ty"
+	googleAuthEndpoint           = "https://accounts.google.com/o/oauth2/auth"
+	googleTokenEndpoint          = "https://oauth2.googleapis.com/token"
 )
 
 type GcpTokenProviderTransformer struct{}
@@ -169,24 +184,29 @@ func GetCredentials(ctx context.Context, clientScopes []string, initialCredentia
 
 	defaultTS, err := googleoauth.DefaultTokenSource(context.Background(), clientScopes...)
 	if err != nil {
-		err := selfHostedGCloudAuth(ctx)
+		log.Ctx(ctx).Debug().Err(err).Msg("original error getting default token source")
+		startFlow, err := logger.PromptUserYesNo(ctx, "Couldn't locate Google Cloud credentials. You can run 'gcloud auth application-default login' if you have it installed, or Barbe can start the browser authentication flow directly. Would you like to start the browser authentication flow?")
 		if err != nil {
-			return googleoauth.Credentials{}, fmt.Errorf("Attempted to load application default credentials since neither `credentials` nor `access_token` was set in the provider block.  No credentials loaded. To use your gcloud credentials, run 'gcloud auth application-default login'.  Original error: %w", err)
+			return googleoauth.Credentials{}, errors.Wrap(err, "error prompting user")
 		}
-		return googleoauth.Credentials{}, fmt.Errorf("Attempted to load application default credentials since neither `credentials` nor `access_token` was set in the provider block.  No credentials loaded. To use your gcloud credentials, run 'gcloud auth application-default login'.  Original error: %w", err)
+		if !startFlow {
+			return googleoauth.Credentials{}, errors.New("no credentials found")
+		}
+
+		err = selfHostedGCloudAuth(ctx)
+		if err != nil {
+			return googleoauth.Credentials{}, errors.Wrap(err, "error starting self hosted gcloud auth")
+		}
+
+		defaultTS, err = googleoauth.DefaultTokenSource(context.Background(), clientScopes...)
+		if err != nil {
+			return googleoauth.Credentials{}, errors.Wrap(err, "error getting default token source after self hosted gcloud auth, try running 'gcloud auth application-default login' or providing one of the following environment variables: GOOGLE_CREDENTIALS, GOOGLE_CLOUD_KEYFILE_JSON, GCLOUD_KEYFILE_JSON, GOOGLE_OAUTH_ACCESS_TOKEN")
+		}
 	}
 
 	return googleoauth.Credentials{
 		TokenSource: defaultTS,
-	}, err
-}
-
-type serverHandler struct {
-	f func(token string)
-}
-
-func (s *serverHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	s.f(r.URL.Query().Get("code"))
+	}, nil
 }
 
 func selfHostedGCloudAuth(ctx context.Context) error {
@@ -205,71 +225,32 @@ func selfHostedGCloudAuth(ctx context.Context) error {
 		"https://www.googleapis.com/auth/sqlservice.login",
 		"https://www.googleapis.com/auth/accounts.reauth",
 	}
-	port := 8085
 
+	port := findAvailablePort(8085)
 	qs := url.Values{}
 	qs.Add("response_type", "code")
-	qs.Add("client_id", "764086051850-6qr4p6gpi6hn506pt8ejuq83di341hur.apps.googleusercontent.com")
+	qs.Add("client_id", gcloudCliDefaultClientId)
 	//TODO find available port
 	qs.Add("redirect_uri", fmt.Sprintf("http://localhost:%d", port))
 	qs.Add("scope", strings.Join(scopes, " "))
 	qs.Add("code_challenge", codeChallenge)
 	qs.Add("code_challenge_method", "S256")
 	qs.Add("access_type", "offline")
+	uri := googleAuthEndpoint + "?" + qs.Encode()
 
-	wg := sync.WaitGroup{}
-	wg.Add(1)
-	var errSrv error
-	var code string
-	go func() {
-		defer wg.Done()
-		s := &http.Server{
-			Addr: fmt.Sprintf(":%d", port),
-		}
-		s.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			code = r.URL.Query().Get("code")
-			errSrv = s.Shutdown(ctx)
-			if errSrv != nil {
-				fmt.Println("Error shutting down server", errSrv)
-			}
-		})
-		//http://localhost:8085/?state=state&code=4/0AWgavdcR-eimvZFlOip1bzrvYK8jo1bvMnMtCyKfbvdUfqWbPrvO9tNjAwxAk4PcD-0I0w&scope=email%20openid%20https://www.googleapis.com/auth/userinfo.email%20https://www.googleapis.com/auth/cloud-platform%20https://www.googleapis.com/auth/sqlservice.login%20https://www.googleapis.com/auth/accounts.reauth&authuser=0&prompt=consent
-		//s.Shutdown(ctx)
-
-		fmt.Println("Starting server", s.Addr)
-		//TODO add timeout
-		errSrv = s.ListenAndServe()
-		if errSrv != nil {
-			if errSrv == http.ErrServerClosed {
-				errSrv = nil
-			} else {
-				log.Ctx(ctx).Error().Err(errSrv).Msg("Failed to start webserver")
-			}
-		}
-	}()
-
-	uri := "https://accounts.google.com/o/oauth2/auth?" + qs.Encode()
-	log.Ctx(ctx).Info().Msgf("Opening browser to %s", uri)
-	err := browser.OpenURL(uri)
+	code, err := receiveAuthCallback(ctx, uri, port, time.Minute*10)
 	if err != nil {
-		return errors.Wrap(err, "failed to open browser")
-	}
-	wg.Wait()
-	if errSrv != nil {
-		return errors.Wrap(errSrv, "failed to start server")
-	}
-	if code == "" {
-		return errors.New("no code received")
+		return errors.Wrap(err, "error receiving waiting for google authentication callback")
 	}
 
 	body := url.Values{}
 	body.Add("code", code)
 	body.Add("grant_type", "authorization_code")
-	body.Add("client_id", "764086051850-6qr4p6gpi6hn506pt8ejuq83di341hur.apps.googleusercontent.com")
-	body.Add("client_secret", "d-FL95Q19q7MQmFpd7hHD0Ty")
+	body.Add("client_id", gcloudCliDefaultClientId)
+	body.Add("client_secret", gcloudCliDefaultClientSecret)
 	body.Add("redirect_uri", fmt.Sprintf("http://localhost:%d", port))
 	body.Add("code_verifier", codeVerifier)
-	req, err := http.NewRequest("POST", "https://oauth2.googleapis.com/token", strings.NewReader(body.Encode()))
+	req, err := http.NewRequest("POST", googleTokenEndpoint, strings.NewReader(body.Encode()))
 	if err != nil {
 		return errors.Wrap(err, "failed to create request")
 	}
@@ -284,23 +265,137 @@ func selfHostedGCloudAuth(ctx context.Context) error {
 	if resp.StatusCode != 200 {
 		return errors.Errorf("failed to get token: %s", resp.Status)
 	}
-	b, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return errors.Wrap(err, "failed to read response")
-	}
 	var tokenResp struct {
-		AccessToken string `json:"access_token"`
-		ExpiresIn   int    `json:"expires_in"`
-		TokenType   string `json:"token_type"`
+		RefreshToken string `json:"refresh_token"`
 	}
-	err = json.Unmarshal(b, &tokenResp)
+	err = json.NewDecoder(resp.Body).Decode(&tokenResp)
 	if err != nil {
 		return errors.Wrap(err, "failed to parse response")
-
 	}
-	fmt.Println(tokenResp.AccessToken)
+	if tokenResp.RefreshToken == "" {
+		return errors.New("no refresh token in response")
+	}
 
+	appDefaultCredentials := map[string]string{
+		"client_id":     gcloudCliDefaultClientId,
+		"client_secret": gcloudCliDefaultClientSecret,
+		"refresh_token": tokenResp.RefreshToken,
+		"type":          "authorized_user",
+	}
+	credentialsFile, err := os.Create(gcloudWellKnownFile())
+	if err != nil {
+		return errors.Wrap(err, "failed to create credentials file")
+	}
+	defer credentialsFile.Close()
+	err = json.NewEncoder(credentialsFile).Encode(appDefaultCredentials)
+	if err != nil {
+		return errors.Wrap(err, "failed to write credentials file")
+	}
 	return nil
+}
+
+func gcloudWellKnownFile() string {
+	const f = "application_default_credentials.json"
+	if runtime.GOOS == "windows" {
+		return filepath.Join(os.Getenv("APPDATA"), "gcloud", f)
+	}
+	return filepath.Join(guessUnixHomeDir(), ".config", "gcloud", f)
+}
+
+func guessUnixHomeDir() string {
+	// Prefer $HOME over user.Current due to glibc bug: golang.org/issue/13470
+	if v := os.Getenv("HOME"); v != "" {
+		return v
+	}
+	//TODO handle sudo user mode see chown.go
+
+	// Else, fall back to user.Current:
+	if u, err := user.Current(); err == nil {
+		return u.HomeDir
+	}
+	return ""
+}
+
+func receiveAuthCallback(ctx context.Context, uri string, port int, timeout time.Duration) (code string, e error) {
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+	var errSrv error
+
+	s := &http.Server{
+		Addr: fmt.Sprintf(":%d", port),
+	}
+	s.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		code = r.URL.Query().Get("code")
+		w.Write([]byte("Authentication successful. You can close this window now."))
+		go func() {
+			errSrv = s.Shutdown(ctx)
+			if errSrv != nil {
+				errSrv = errors.Wrap(errSrv, "error to shutdown server")
+				log.Ctx(ctx).Error().Err(errSrv).Msg("")
+			}
+		}()
+	})
+
+	go func() {
+		select {
+		case <-time.After(timeout):
+			errSrv = errors.New("timed out waiting for auth code")
+			err := s.Shutdown(ctx)
+			if err != nil {
+				s.Close()
+			}
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		errSrv = s.ListenAndServe()
+		if errSrv != nil {
+			if errSrv == http.ErrServerClosed {
+				errSrv = nil
+			} else {
+				errSrv = errors.Wrap(errSrv, "error starting webserver")
+				log.Ctx(ctx).Error().Err(errSrv).Msg("")
+			}
+		}
+	}()
+
+	log.Ctx(ctx).Info().Msgf("Opening browser to %s", uri)
+	err := openBrowser(uri)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to open browser")
+	}
+	wg.Wait()
+	if errSrv != nil {
+		return "", errSrv
+	}
+	if code == "" {
+		return "", errors.New("no code received")
+	}
+	return code, nil
+}
+
+func openBrowser(url string) error {
+	return browser.OpenURL(url, func(cmd *exec.Cmd) {
+		if uid, gid, err := chown_util.GetSudoerUser(); err == nil && uid != -1 && gid != -1 {
+			if cmd.SysProcAttr == nil {
+				cmd.SysProcAttr = &syscall.SysProcAttr{}
+			}
+			cmd.SysProcAttr.Credential = &syscall.Credential{Uid: uint32(uid), Gid: uint32(gid)}
+		}
+	})
+}
+
+func findAvailablePort(startFrom int) int {
+	port := startFrom
+	for {
+		ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+		if err == nil {
+			ln.Close()
+			break
+		}
+		port++
+	}
+	return port
 }
 
 func randSeq(n int) string {

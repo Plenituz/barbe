@@ -10,18 +10,30 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/tetratelabs/wazero"
 	"path"
-	"time"
 )
 
-var rpcFuncBase = map[string]RpcFunc{
-	"sleep": func(args []any) (any, error) {
-		millis, ok := args[0].(float64)
-		if !ok {
-			return nil, errors.New("sleep: invalid argument")
+var rpcFuncBase = map[string]RpcFunc{}
+
+func transformContainerTemplate(ctx context.Context) RpcFunc {
+	return func(args []any) (any, error) {
+		decodedBags, err := decodeSugarCoatedDatabags(args[0])
+		if err != nil {
+			return nil, err
 		}
-		time.Sleep(time.Duration(millis) * time.Millisecond)
-		return nil, nil
-	},
+		input := core.NewConfigContainer()
+		for _, bag := range decodedBags {
+			err = input.Insert(bag)
+			if err != nil {
+				return nil, err
+			}
+		}
+		maker := ctx.Value("maker").(*core.Maker)
+		newFromTransform, err := maker.Transform(ctx, *input)
+		if err != nil {
+			return nil, errors.Wrap(err, "error transforming container in pipeline")
+		}
+		return newFromTransform.DataBags, nil
+	}
 }
 
 func importComponentTemplate(ctx context.Context) RpcFunc {

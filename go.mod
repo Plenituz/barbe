@@ -30,16 +30,17 @@ require (
 	github.com/opencontainers/go-digest v1.0.0
 	github.com/opencontainers/image-spec v1.0.3-0.20220114050600-8b9d41f48198
 	github.com/opentracing/opentracing-go v1.1.0
-	github.com/pkg/browser v0.0.0-20210911075715-681adbf594b8
 	github.com/pkg/errors v0.9.1
 	github.com/rs/zerolog v1.28.0
 	github.com/spf13/cobra v1.5.0
 	github.com/spf13/viper v1.13.0
+	github.com/tetratelabs/wazero v1.0.0-pre.7
 	github.com/tonistiigi/units v0.0.0-20180711220420-6950e57a87ea
 	github.com/tonistiigi/vt100 v0.0.0-20210615222946-8066bb97264f
 	github.com/zclconf/go-cty v1.11.0
 	golang.org/x/oauth2 v0.0.0-20220718184931-c8730f7fcb92
 	golang.org/x/sync v0.0.0-20220601150217-0de741cfad7f
+	golang.org/x/sys v0.2.0
 	golang.org/x/term v0.0.0-20220722155259-a9ba230a4035
 	golang.org/x/time v0.0.0-20210723032227-1f47c861a9ac
 	google.golang.org/grpc v1.50.1
@@ -119,7 +120,6 @@ require (
 	go.opentelemetry.io/proto/otlp v0.19.0 // indirect
 	golang.org/x/crypto v0.0.0-20220722155217-630584e8d5aa // indirect
 	golang.org/x/net v0.0.0-20220708220712-1185a9018129 // indirect
-	golang.org/x/sys v0.2.0 // indirect
 	golang.org/x/text v0.3.7 // indirect
 	golang.org/x/xerrors v0.0.0-20220609144429-65e65417b02f // indirect
 	google.golang.org/api v0.84.0 // indirect

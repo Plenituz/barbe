@@ -75,12 +75,12 @@ func IterateDirectories(ctx context.Context, command core.MakeCommand, allFiles 
 				maker.Fetcher.UrlTransformer = func(s string) string {
 					parsedUrl, err := url.Parse(s)
 					if err != nil {
-						log.Ctx(ctx).Warn().Err(err).Msg("failed to parse component name in url transformer")
+						//log.Ctx(ctx).Warn().Err(err).Msg("failed to parse component name in url transformer")
 						return s
 					}
 					split := strings.Split(parsedUrl.Path, "/")
 					if len(split) < 3 {
-						log.Ctx(ctx).Warn().Err(err).Msg("failed to parse component name in url transformer")
+						//log.Ctx(ctx).Warn().Err(err).Msg("failed to parse component name in url transformer")
 						return s
 					}
 					componentName := split[2]
@@ -111,7 +111,7 @@ func IterateDirectories(ctx context.Context, command core.MakeCommand, allFiles 
 					}
 
 					if found == "" {
-						log.Ctx(ctx).Warn().Err(err).Msg("failed to find local component in url transformer")
+						//log.Ctx(ctx).Warn().Err(err).Msg("failed to find local component in url transformer")
 						return s
 					}
 					return found

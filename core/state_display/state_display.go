@@ -13,6 +13,8 @@ var GlobalState = StateDisplay{
 }
 
 type StateDisplay struct {
+	Prompt *string
+
 	mutex          *sync.Mutex
 	majorStepIndex map[string]int
 	minorStepIndex map[string]map[string]int
@@ -163,4 +165,13 @@ func (s *StateDisplay) FindActiveMajorStepWithMinorStepNamed(name string) (paren
 		}
 	}
 	return ""
+}
+
+func (s *StateDisplay) PromptUser(prompt *string) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	s.Prompt = prompt
+	if s.OnStateDisplayChanged != nil {
+		s.OnStateDisplayChanged(*s)
+	}
 }

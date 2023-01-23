@@ -59,29 +59,11 @@ func syntaxTokenToHclTokens(item core.SyntaxToken, parentName *string) (hclwrite
 	case core.TokenTypeObjectConst:
 		toks := make(hclwrite.Tokens, 0)
 
-		if core.GetMetaBool(item, "IsBlock") {
+		if core.GetMeta[bool](item, "IsBlock") {
 			labels := make([]string, 0)
-			labelsIndexes := make([]int, 0)
-			for i, label := range item.ObjectConst {
-				if label.Key != "labels" {
-					continue
-				}
-				labelsArr := label.Value
-				if labelsArr.Type != core.TokenTypeArrayConst {
-					return nil, errors.New("'labels' must be an array_const")
-				}
-				for _, item := range labelsArr.ArrayConst {
-					if item.Type != core.TokenTypeLiteralValue {
-						return nil, errors.New("'labels' must be an array of literal values")
-					}
-					if _, ok := item.Value.(string); !ok {
-						return nil, errors.New("'labels' must be an array of literal values strings")
-					}
-					labels = append(labels, item.Value.(string))
-				}
-				labelsIndexes = append(labelsIndexes, i)
+			if _, ok := item.Meta["BlockLabels"]; ok {
+				labels = core.GetMetaComplexType[[]string](item, "BlockLabels")
 			}
-
 			for _, label := range labels {
 				toks = append(toks, &hclwrite.Token{
 					Type:  hclsyntax.TokenOQuote,
@@ -95,11 +77,6 @@ func syntaxTokenToHclTokens(item core.SyntaxToken, parentName *string) (hclwrite
 					Type:  hclsyntax.TokenCQuote,
 					Bytes: []byte{'"'},
 				})
-			}
-			for i, index := range labelsIndexes {
-				//labelsIndexes is sorted
-				toDelete := index - i
-				item.ObjectConst = append(item.ObjectConst[:toDelete], item.ObjectConst[toDelete+1:]...)
 			}
 		}
 		toks = append(toks, &hclwrite.Token{
