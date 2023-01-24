@@ -18,6 +18,7 @@ require (
 	github.com/google/go-jsonnet v0.18.0
 	github.com/google/uuid v1.3.0
 	github.com/gosuri/uilive v0.0.4
+	github.com/hashicorp/go-envparse v0.1.0
 	github.com/hashicorp/hcl/v2 v2.14.0
 	github.com/imdario/mergo v0.3.12
 	github.com/lightstep/lightstep-tracer-go v0.26.0

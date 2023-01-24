@@ -72,6 +72,7 @@ type Maker struct {
 	Fetcher      *fetcher.Fetcher
 	StateHandler *StateHandler
 	Executable   Executable
+	Env          map[string]string
 }
 
 func NewMaker(command MakeCommand) *Maker {

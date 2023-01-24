@@ -33,7 +33,7 @@ func (t AwsSessionProviderTransformer) Transform(ctx context.Context, data core.
 				}
 				newBag, err := populateAwsSession(ctx, databag)
 				if err != nil {
-					log.Ctx(ctx).Error().Err(err).Msg("error getting aws credentials")
+					log.Ctx(ctx).Debug().Err(err).Msg("error getting aws credentials")
 					continue
 				}
 				err = output.Insert(newBag)

@@ -18,6 +18,7 @@ import (
 	"barbe/core/wasm"
 	"barbe/core/zipper_fmt"
 	"context"
+	"github.com/hashicorp/go-envparse"
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -68,7 +69,10 @@ func IterateDirectories(ctx context.Context, command core.MakeCommand, allFiles 
 			}
 			log.Ctx(ctx).Debug().Msg("with files: [" + strings.Join(fileNames, ", ") + "]")
 
-			maker := makeMaker(ctx, command, path.Join(viper.GetString("output"), dir))
+			maker, err := makeMaker(ctx, command, path.Join(viper.GetString("output"), dir))
+			if err != nil {
+				return errors.Wrap(err, "failed to create maker")
+			}
 
 			if os.Getenv("BARBE_LOCAL") != "" {
 				localDirs := strings.Split(os.Getenv("BARBE_LOCAL"), ":")
@@ -120,7 +124,7 @@ func IterateDirectories(ctx context.Context, command core.MakeCommand, allFiles 
 
 			innerCtx := context.WithValue(ctx, "maker", maker)
 
-			err := os.MkdirAll(maker.OutputDir, 0755)
+			err = os.MkdirAll(maker.OutputDir, 0755)
 			if err != nil {
 				return errors.Wrapf(err, "failed to create output dir %s", maker.OutputDir)
 			}
@@ -223,7 +227,7 @@ func groupFilesByDirectory(files []fetcher.FileDescription) map[string][]fetcher
 	return result
 }
 
-func makeMaker(ctx context.Context, command core.MakeCommand, dir string) *core.Maker {
+func makeMaker(ctx context.Context, command core.MakeCommand, dir string) (*core.Maker, error) {
 	maker := core.NewMaker(command)
 	maker.OutputDir = dir
 	maker.Parsers = []core.Parser{
@@ -253,5 +257,52 @@ func makeMaker(ctx context.Context, command core.MakeCommand, dir string) *core.
 		zipper_fmt.ZipperFormatter{},
 		raw_file.RawFileFormatter{},
 	}
-	return maker
+	maker.Env = map[string]string{}
+	envArgs := viper.GetStringSlice("env")
+	for _, envArg := range envArgs {
+		if _, err := os.Stat(envArg); !os.IsNotExist(err) {
+			err = (func() error {
+				file, err := os.Open(envArg)
+				if err != nil {
+					return errors.Wrap(err, "couldnt read env file at '"+envArg+"'")
+				}
+				defer file.Close()
+				m, err := envparse.Parse(file)
+				if err != nil {
+					return errors.Wrap(err, "couldnt parse env file at '"+envArg+"'")
+				}
+				for k, v := range m {
+					maker.Env[k] = v
+				}
+				return nil
+			})()
+			if err != nil {
+				return nil, err
+			}
+			continue
+		}
+		if envVal, ok := os.LookupEnv(envArg); ok {
+			maker.Env[envArg] = envVal
+			continue
+		}
+		m, err := envparse.Parse(strings.NewReader(envArg))
+		if err != nil {
+			return nil, errors.Wrap(err, "couldnt parse --env '"+envArg+"'")
+		}
+		for k, v := range m {
+			maker.Env[k] = v
+		}
+	}
+	//default keys that are included because they are known to not
+	//contain sensitive information and are useful to many use cases
+	defaultEnv := []string{"AWS_REGION"}
+	for _, k := range defaultEnv {
+		if _, ok := maker.Env[k]; !ok {
+			if envVal, ok := os.LookupEnv(k); ok {
+				maker.Env[k] = envVal
+			}
+		}
+	}
+
+	return maker, nil
 }

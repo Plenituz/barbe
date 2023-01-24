@@ -131,11 +131,13 @@ func (h *SpiderMonkeyTemplater) executeJs(ctx context.Context, maker *core.Maker
 		RegisteredFunctions: funcs,
 	}
 
-	envVars := map[string]string{
-		"BARBE_COMMAND":        maker.Command,
-		"BARBE_LIFECYCLE_STEP": maker.CurrentStep,
-		"BARBE_OUTPUT_DIR":     maker.OutputDir,
+	envVars := map[string]string{}
+	for k, v := range maker.Env {
+		envVars[k] = v
 	}
+	envVars["BARBE_COMMAND"] = maker.Command
+	envVars["BARBE_LIFECYCLE_STEP"] = maker.CurrentStep
+	envVars["BARBE_OUTPUT_DIR"] = maker.OutputDir
 
 	state := maker.StateHandler.GetState(core.ContextScopeKey(ctx))
 	stateJson, err := json.Marshal(state)

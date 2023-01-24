@@ -21,6 +21,7 @@ func init() {
 	rootCmd.PersistentFlags().Bool("auto-approve", false, "Automatically approve all yes/no prompts")
 	rootCmd.PersistentFlags().StringP("output", "o", "barbe_dist", "Output directory")
 	rootCmd.PersistentFlags().Bool("debug-bags", false, "Outputs the resulting databags to the output directory, for debugging purposes")
+	rootCmd.PersistentFlags().StringArrayP("env", "e", []string{}, "Environment variables to pass to the templates, this can be either a key=value pair (FOO=bar), the name of a env variable to copy (FOO), or a file path to a .env file (./.env)")
 
 	if err := viper.BindPFlags(rootCmd.PersistentFlags()); err != nil {
 		panic(err)

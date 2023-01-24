@@ -42,7 +42,7 @@ type parsedPipelineItem struct {
 }
 
 func createVm(ctx context.Context, maker *core.Maker, input core.ConfigContainer) (*jsonnet.VM, io.Closer, error) {
-	env, err := envMap()
+	env, err := json.Marshal(maker.Env)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "failed to marshal env map")
 	}
@@ -57,7 +57,7 @@ func createVm(ctx context.Context, maker *core.Maker, input core.ConfigContainer
 	vm.ExtVar("barbe_command", maker.Command)
 	vm.ExtVar("barbe_lifecycle_step", maker.CurrentStep)
 	vm.ExtVar("barbe_output_dir", ctx.Value("maker").(*core.Maker).OutputDir)
-	vm.ExtCode("env", env)
+	vm.ExtCode("env", string(env))
 	vm.ExtVar("barbe_selected_pipeline", "")
 	vm.ExtVar("barbe_selected_pipeline_step", "")
 	vm.NativeFunction(&jsonnet.NativeFunction{
@@ -280,18 +280,4 @@ func formatJsonnetError(ctx context.Context, templateFileName string, err error)
 	}
 	err = errors.New(strings.ReplaceAll(err.Error(), "<extvar:barbe>", "<extvar:barbe> utils.jsonnet"))
 	return errors.Wrap(err, "failed to evaluate '"+templateFileName+"'")
-}
-
-func envMap() (string, error) {
-	//TODO this may not work as well on windows, see https://github.com/caarlos0/env/blob/main/env_windows.go
-	r := map[string]string{}
-	for _, e := range os.Environ() {
-		p := strings.SplitN(e, "=", 2)
-		r[p[0]] = p[1]
-	}
-	str, err := json.Marshal(r)
-	if err != nil {
-		return "", errors.Wrap(err, "failed to marshal env map")
-	}
-	return string(str), nil
 }
