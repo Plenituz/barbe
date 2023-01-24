@@ -96,7 +96,7 @@ func checkBuildkit(ctx context.Context) error {
 			Msg("failed to get buildkit information")
 
 		// If that failed, it might be because the docker CLI is out of service.
-		if err := checkDocker(ctx); err != nil {
+		if err := CheckDocker(ctx); err != nil {
 			return err
 		}
 
@@ -148,7 +148,7 @@ func checkBuildkit(ctx context.Context) error {
 
 // ensure the docker CLI is available and properly set up (e.g. permissions to
 // communicate with the daemon, etc)
-func checkDocker(ctx context.Context) error {
+func CheckDocker(ctx context.Context) error {
 	cmd := exec.CommandContext(ctx, "docker", "info")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -158,7 +158,7 @@ func checkDocker(ctx context.Context) error {
 			Err(err).
 			Bytes("output", output).
 			Msg("failed to run docker")
-		return err
+		return errors.Wrap(err, string(output))
 	}
 
 	return nil

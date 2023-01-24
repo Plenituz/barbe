@@ -31,6 +31,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path"
+	"runtime"
 	"strings"
 	"sync"
 )
@@ -91,6 +92,29 @@ func (t *BuildkitRunner) Transform(ctx context.Context, data core.ConfigContaine
 	if len(executables) == 0 {
 		tmp := core.NewConfigContainer()
 		return *tmp, nil
+	}
+
+	if bkHost == nil {
+		err := buildkitd.CheckDocker(ctx)
+		if err != nil {
+			errStr := strings.ToLower(err.Error())
+			switch {
+			case strings.Contains(errStr, "cannot connect to the docker daemon"):
+				msg := "no container runtime running, please start one and try again."
+				switch runtime.GOOS {
+				case "darwin":
+					msg += " On macOS you can use Docker Desktop (https://www.docker.com/get-started/) or Colima (brew install colima && colima start) or Podman (https://podman.io/getting-started/installation)."
+				case "linux":
+					msg += " On Linux you can use Docker (https://docs.docker.com/desktop/install/linux-install/) or Podman (https://podman.io/getting-started/installation)."
+				case "windows":
+					msg += " On Windows you can use Docker Desktop (https://www.docker.com/get-started/)."
+				}
+				return core.ConfigContainer{}, errors.New(msg)
+
+			case strings.Contains(errStr, "executable file not found"):
+				return core.ConfigContainer{}, errors.Wrap(err, "the docker CLI is not installed, please install it and try again")
+			}
+		}
 	}
 
 	eg := errgroup.Group{}

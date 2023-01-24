@@ -301,6 +301,53 @@ execute() {
     test "$(uname_os)" = "darwin" && (xattr -d com.apple.quarantine "${bin_dir}/${binexe}" || true)
     log_info "installed ${bin_dir}/${binexe}"
     rm -rf "${tmpdir}"
+
+    # for mac only, install brew if required, then install docker. using the test command
+    if [ "$(uname_os)" = "darwin" ]; then
+        if ! is_command brew
+        then
+            /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+        fi
+        if ! is_command docker
+        then
+            brew install docker
+        fi
+        # try to run docker info, if it doesn't work, with the message "Cannot connect to the Docker daemon", then install colima using brew
+        if ! docker info
+        then
+          # ask the user if they want us to install colima for them
+          read -p "No container runtime is running. Would you like to install/start Colima (if you're not sure, yes is a good answer)? (y/n) " -n 1 -r
+          echo
+          if [[ $REPLY =~ ^[Yy]$ ]]
+          then
+            if ! is_command colima
+            then
+                brew install colima
+            fi
+            colima start
+          fi
+        fi
+    fi
+
+    # same as above but for linux
+    if [ "$(uname_os)" = "linux" ]; then
+        if ! is_command docker
+        then
+            # ask the user if they want us to install docker for them
+            read -p "No container runtime is running. Would you like to install/start Docker (if you're not sure, yes is a good answer)? (y/n) " -n 1 -r
+            echo
+            if [[ $REPLY =~ ^[Yy]$ ]]
+            then
+                if ! is_command docker
+                then
+                    curl -fsSL https://get.docker.com -o get-docker.sh
+                    sh get-docker.sh
+                fi
+                # start docker, make it work on most linux distros
+                sudo systemctl start docker || sudo service docker start || sudo service docker.io start
+            fi
+        fi
+    fi
 }
 
 execute
