@@ -64,14 +64,10 @@ func (t *BuildkitRunner) Transform(ctx context.Context, data core.ConfigContaine
 				if databag.Value.Type != core.TokenTypeObjectConst {
 					continue
 				}
-				//dont execute the same container twice if they have the same name and are in the same scope
-				//this allows components to be declarative without impacting performance
-				//TODO maybe compare input here like in import_component maybe?
-				executeId := core.ContextScopeKey(ctx) + databag.Name
-				if _, ok := t.alreadyExecuted[executeId]; ok {
+				if _, ok := t.alreadyExecuted[databag.Name]; ok {
 					continue
 				}
-				t.alreadyExecuted[executeId] = struct{}{}
+				t.alreadyExecuted[databag.Name] = struct{}{}
 
 				var err error
 				config, err := parseRunnerConfig(ctx, databag.Value.ObjectConst)

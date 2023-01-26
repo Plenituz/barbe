@@ -61,8 +61,8 @@ func syntaxTokenToHclTokens(item core.SyntaxToken, parentName *string) (hclwrite
 
 		if core.GetMeta[bool](item, "IsBlock") {
 			labels := make([]string, 0)
-			if _, ok := item.Meta["BlockLabels"]; ok {
-				labels = core.GetMetaComplexType[[]string](item, "BlockLabels")
+			if _, ok := item.Meta["Labels"]; ok {
+				labels = core.GetMetaComplexType[[]string](item, "Labels")
 			}
 			for _, label := range labels {
 				toks = append(toks, &hclwrite.Token{
