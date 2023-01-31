@@ -132,6 +132,7 @@ type runnerConfig struct {
 	Message               string
 	DisplayName           string
 	RequireConfirmation   bool
+	InputFiles            map[string]string
 	ExportedFiles         map[string]string
 	ExportedFilesLocation string
 	ReadBackFiles         []string
@@ -161,6 +162,7 @@ func parseRunnerConfig(ctx context.Context, objConst []core.ObjectConstItem) (ru
 	output := runnerConfig{
 		ExportedFiles: map[string]string{},
 		EnvVars:       map[string]string{},
+		InputFiles:    map[string]string{},
 	}
 
 	dockerfileToken := core.GetObjectKeyValues("dockerfile", objConst)
@@ -366,6 +368,21 @@ func parseRunnerConfig(ctx context.Context, objConst []core.ObjectConstItem) (ru
 		}
 	}
 
+	inputFilesTokens := core.GetObjectKeyValues("input_files", objConst)
+	for _, inputFilesToken := range inputFilesTokens {
+		if inputFilesToken.Type != core.TokenTypeObjectConst {
+			log.Ctx(ctx).Warn().Msg("buildkit_run_in_container input_files is not an object, ignoring it")
+			continue
+		}
+		for _, pair := range inputFilesToken.ObjectConst {
+			exportedFileStr, err := core.ExtractAsStringValue(pair.Value)
+			if err != nil {
+				return runnerConfig{}, errors.Wrap(err, "error extracting input_files value as string on buildkit_run_in_container")
+			}
+			output.InputFiles[pair.Key] = exportedFileStr
+		}
+	}
+
 	workingDirToken := core.GetObjectKeyValues("workdir", objConst)
 	if len(workingDirToken) > 0 {
 		if len(workingDirToken) > 1 {
@@ -402,6 +419,10 @@ func buildLlbDefinition(ctx context.Context, runnerConfig runnerConfig) (runnerE
 				buildContext := llb.Scratch().
 					File(llb.Copy(llb.Local("src"), "./", "/")).
 					Dir("/")
+				for name, content := range runnerConfig.InputFiles {
+					buildContext = buildContext.File(llb.Mkfile(name, 0755, []byte(content)))
+				}
+
 				return &buildContext, nil, nil, nil
 			},
 		}
@@ -436,6 +457,9 @@ func buildLlbDefinition(ctx context.Context, runnerConfig runnerConfig) (runnerE
 		baseImage := llb.Image(*runnerConfig.BaseImageName).
 			File(llb.Copy(llb.Local("src"), "./", "/src")).
 			Dir("/src")
+		for name, content := range runnerConfig.InputFiles {
+			baseImage = baseImage.File(llb.Mkfile(name, 0755, []byte(content)))
+		}
 
 		if runnerConfig.Workdir != nil {
 			baseImage = baseImage.Dir(*runnerConfig.Workdir)
