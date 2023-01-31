@@ -34,7 +34,6 @@ require (
 	github.com/rs/zerolog v1.28.0
 	github.com/spf13/cobra v1.5.0
 	github.com/spf13/viper v1.13.0
-	github.com/tetratelabs/wazero v1.0.0-pre.5
 	github.com/tonistiigi/units v0.0.0-20180711220420-6950e57a87ea
 	github.com/tonistiigi/vt100 v0.0.0-20210615222946-8066bb97264f
 	github.com/zclconf/go-cty v1.11.0
