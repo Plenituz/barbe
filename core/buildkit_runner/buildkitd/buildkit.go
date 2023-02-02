@@ -6,7 +6,9 @@ import (
 	"github.com/gofrs/flock"
 	"github.com/mitchellh/go-homedir"
 	bk "github.com/moby/buildkit/client"
-	_ "github.com/moby/buildkit/client/connhelper/dockercontainer" // import the container connection driver
+	_ "github.com/moby/buildkit/client/connhelper/dockercontainer" // import the docker connection driver
+	_ "github.com/moby/buildkit/client/connhelper/kubepod"         // import the kubernetes connection driver
+	_ "github.com/moby/buildkit/client/connhelper/podmancontainer" // import the podman connection driver
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog/log"
 	"os"

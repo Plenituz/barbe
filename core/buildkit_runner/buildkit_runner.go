@@ -21,7 +21,6 @@ import (
 	"github.com/moby/buildkit/frontend/dockerfile/dockerfile2llb"
 	bkgw "github.com/moby/buildkit/frontend/gateway/client"
 	"github.com/moby/buildkit/session"
-	"github.com/moby/buildkit/util/buildinfo/types"
 	"github.com/moby/buildkit/util/testutil"
 	specs "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
@@ -39,11 +38,13 @@ import (
 const bagName = "buildkit_run_in_container"
 
 type BuildkitRunner struct {
+	mutex           sync.Mutex
 	alreadyExecuted map[string]struct{}
 }
 
 func NewBuildkitRunner() *BuildkitRunner {
 	return &BuildkitRunner{
+		mutex:           sync.Mutex{},
 		alreadyExecuted: make(map[string]struct{}),
 	}
 }
@@ -64,10 +65,13 @@ func (t *BuildkitRunner) Transform(ctx context.Context, data core.ConfigContaine
 				if databag.Value.Type != core.TokenTypeObjectConst {
 					continue
 				}
+				t.mutex.Lock()
 				if _, ok := t.alreadyExecuted[databag.Name]; ok {
+					t.mutex.Unlock()
 					continue
 				}
 				t.alreadyExecuted[databag.Name] = struct{}{}
+				t.mutex.Unlock()
 
 				var err error
 				config, err := parseRunnerConfig(ctx, databag.Value.ObjectConst)
@@ -411,9 +415,9 @@ func buildLlbDefinition(ctx context.Context, runnerConfig runnerConfig) (runnerE
 	if runnerConfig.Dockerfile != nil {
 		opts := dockerfile2llb.ConvertOpt{
 			Excludes: runnerConfig.Excludes,
-			ContextByName: func(ctx context.Context, name, resolveMode string, p *specs.Platform) (*llb.State, *dockerfile2llb.Image, *binfotypes.BuildInfo, error) {
+			ContextByName: func(ctx context.Context, name, resolveMode string, p *specs.Platform) (*llb.State, *dockerfile2llb.Image, error) {
 				if !strings.HasPrefix(name, "docker.io/library/src") {
-					return nil, nil, nil, nil
+					return nil, nil, nil
 				}
 				//this is when we have a "COPY --from=src ./ /src"
 				buildContext := llb.Scratch().
@@ -423,7 +427,7 @@ func buildLlbDefinition(ctx context.Context, runnerConfig runnerConfig) (runnerE
 					buildContext = buildContext.File(llb.Mkfile(name, 0755, []byte(content)))
 				}
 
-				return &buildContext, nil, nil, nil
+				return &buildContext, nil, nil
 			},
 		}
 		if runnerConfig.NoCache {
@@ -700,7 +704,7 @@ func getBuildkitClient(ctx context.Context) (*bk.Client, error) {
 		}
 		bkHost = &host
 	}
-	c, err := bk.New(ctx, *bkHost)
+	c, err := bk.New(ctx, *bkHost, bk.WithFailFast())
 	if err != nil {
 		return nil, errors.Wrap(err, "error creating buildkit client")
 	}

@@ -11,7 +11,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog"
 	"github.com/tetratelabs/wazero"
-	"github.com/tetratelabs/wazero/experimental"
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
 	"os"
 	"sync"
@@ -59,11 +58,11 @@ func NewSpiderMonkeyExecutor(logger zerolog.Logger, outputDir string) (*SpiderMo
 	}
 
 	if _, err := os.Stat(cacheDir); !os.IsNotExist(err) {
-		ctx, err = experimental.WithCompilationCacheDirName(ctx, cacheDir)
+		cache, err := wazero.NewCompilationCacheWithDir(cacheDir)
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to set wazero cache dir")
 		}
-		compiledRuntime := wazero.NewRuntime(ctx)
+		compiledRuntime := wazero.NewRuntimeWithConfig(ctx, wazero.NewRuntimeConfig().WithCompilationCache(cache))
 		wasi_snapshot_preview1.MustInstantiate(ctx, compiledRuntime)
 
 		spiderMonkeyCompiled, err := compiledRuntime.CompileModule(ctx, spiderMonkey)
@@ -92,12 +91,12 @@ func NewSpiderMonkeyExecutor(logger zerolog.Logger, outputDir string) (*SpiderMo
 	exec.spiderMonkeyCodeInterpreter = spiderMonkeyInterpreter
 
 	go func() {
-		ctx, err = experimental.WithCompilationCacheDirName(ctx, cacheDir)
+		cache, err := wazero.NewCompilationCacheWithDir(cacheDir)
 		if err != nil {
 			logger.Error().Err(err).Msg("failed to set wazero cache dir")
 			return
 		}
-		compiledRuntime := wazero.NewRuntime(ctx)
+		compiledRuntime := wazero.NewRuntimeWithConfig(ctx, wazero.NewRuntimeConfig().WithCompilationCache(cache))
 		wasi_snapshot_preview1.MustInstantiate(ctx, compiledRuntime)
 
 		spiderMonkeyCompiled, err := compiledRuntime.CompileModule(ctx, spiderMonkey)

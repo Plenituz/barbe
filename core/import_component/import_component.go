@@ -7,16 +7,19 @@ import (
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/sync/errgroup"
+	"sync"
 )
 
 const bagName = "barbe_import_component"
 
 type ComponentImporter struct {
+	mutex           sync.Mutex
 	alreadyImported map[string][]core.ConfigContainer
 }
 
 func NewComponentImporter() *ComponentImporter {
 	return &ComponentImporter{
+		mutex:           sync.Mutex{},
 		alreadyImported: map[string][]core.ConfigContainer{},
 	}
 }
@@ -74,20 +77,7 @@ func (t *ComponentImporter) Transform(ctx context.Context, data core.ConfigConta
 									return core.ConfigContainer{}, errors.Wrap(err, "error decoding input")
 								}
 
-								labels := make([]string, 0)
-								labelsTokens := core.GetObjectKeyValues("Labels", databagToken.ObjectConst)
-								for _, labelsToken := range labelsTokens {
-									if labelsToken.Type != core.TokenTypeArrayConst {
-										continue
-									}
-									for _, labelToken := range labelsToken.ArrayConst {
-										str, err := core.ExtractAsStringValue(labelToken)
-										if err != nil {
-											continue
-										}
-										labels = append(labels, str)
-									}
-								}
+								labels := core.GetMetaComplexType[[]string](databagToken, "Labels")
 								bag := core.DataBag{
 									Name:   namePair.Key,
 									Type:   typePair.Key,
@@ -103,10 +93,14 @@ func (t *ComponentImporter) Transform(ctx context.Context, data core.ConfigConta
 					}
 				}
 
+				//TODO this is kind of getting ignored in the spidermonkey js templater
+				//since it creates it's own import_component for each request (on purpose)
 				executeId := core.ContextScopeKey(ctx) + databag.Name
+				t.mutex.Lock()
 				if pastBags, ok := t.alreadyImported[executeId]; ok {
 					for _, pastBag := range pastBags {
 						if core.ConfigContainerDeepEqual(pastBag, *input) {
+							t.mutex.Unlock()
 							continue LOOP
 						}
 					}
@@ -115,6 +109,7 @@ func (t *ComponentImporter) Transform(ctx context.Context, data core.ConfigConta
 					t.alreadyImported[executeId] = []core.ConfigContainer{}
 				}
 				t.alreadyImported[executeId] = append(t.alreadyImported[databag.Name], *input.Clone())
+				t.mutex.Unlock()
 
 				componentUrlTokens := core.GetObjectKeyValues("url", databag.Value.ObjectConst)
 				if len(componentUrlTokens) == 0 {
