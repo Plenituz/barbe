@@ -1,6 +1,7 @@
 package socketprovider
 
 import (
+	"barbe/core/buildkit_runner/buildkitd"
 	"context"
 	"fmt"
 
@@ -30,6 +31,8 @@ func (sp *SocketProvider) CheckAgent(ctx context.Context, req *sshforward.CheckA
 	return &sshforward.CheckAgentResponse{}, nil
 }
 
+var dockerSocketLocation *string
+
 func (sp *SocketProvider) ForwardAgent(stream sshforward.SSH_ForwardAgentServer) error {
 	id := sshforward.DefaultID
 	opts, _ := metadata.FromIncomingContext(stream.Context()) // if no metadata continue with empty object
@@ -40,10 +43,17 @@ func (sp *SocketProvider) ForwardAgent(stream sshforward.SSH_ForwardAgentServer)
 	if id != "docker.sock" {
 		return fmt.Errorf("invalid socket id %s", id)
 	}
+	if dockerSocketLocation == nil {
+		tmp, err := buildkitd.GetDockerSocketLocation()
+		if err != nil {
+			return err
+		}
+		dockerSocketLocation = &tmp
+	}
 
 	socket := Socket{
-		Unix:  "/var/run/docker.sock",
-		Npipe: "//./pipe/docker_engine",
+		Unix:  *dockerSocketLocation,
+		Npipe: *dockerSocketLocation,
 	}
 	conn, err := dialSocket(socket)
 	if err != nil {

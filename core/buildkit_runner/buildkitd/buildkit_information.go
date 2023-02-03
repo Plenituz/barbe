@@ -2,6 +2,7 @@ package buildkitd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os/exec"
 	"strconv"
@@ -10,7 +11,38 @@ import (
 	"github.com/docker/distribution/reference"
 )
 
-// almost unchanged from https://github.com/dagger/dagger/blob/main/util/buildkitd/buildkit_information.go
+// some of this from https://github.com/dagger/dagger/blob/main/util/buildkitd/buildkit_information.go
+
+func GetDockerSocketLocation() (string, error) {
+	//docker context ls --format "{{json .}}"
+	cmd := exec.Command("docker", "context", "ls", "--format", "{{json .}}")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", err
+	}
+	/*
+		{"Current":true,"Description":"colima","DockerEndpoint":"unix:///Users/me/.colima/default/docker.sock","KubernetesEndpoint":"","Name":"colima","StackOrchestrator":""}
+		{"Current":false,"Description":"Current DOCKER_HOST based configuration","DockerEndpoint":"unix:///var/run/docker.sock","KubernetesEndpoint":"","Name":"default","StackOrchestrator":"swarm"}
+	*/
+	var currentContext string
+	for _, line := range strings.Split(string(output), "\n") {
+		var contextInfo struct {
+			Current        bool   `json:"Current"`
+			DockerEndpoint string `json:"DockerEndpoint"`
+		}
+		if err := json.Unmarshal([]byte(line), &contextInfo); err != nil {
+			return "", err
+		}
+		if contextInfo.Current {
+			currentContext = contextInfo.DockerEndpoint
+			break
+		}
+	}
+	if currentContext == "" {
+		return "", fmt.Errorf("could not find current context")
+	}
+	return strings.TrimPrefix(currentContext, "unix://"), nil
+}
 
 func getBuildkitInformation(ctx context.Context) (*BuildkitInformation, error) {
 	formatString := "{{.Config.Image}};{{.State.Running}};{{if index .NetworkSettings.Networks \"host\"}}{{\"true\"}}{{else}}{{\"false\"}}{{end}}"
