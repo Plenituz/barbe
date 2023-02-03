@@ -413,8 +413,25 @@ func buildLlbDefinition(ctx context.Context, runnerConfig runnerConfig) (runnerE
 		ExportedFilesLocation: runnerConfig.ExportedFilesLocation,
 	}
 	if runnerConfig.Dockerfile != nil {
+		var platform *specs.Platform
+		if bkPlatform == nil {
+			bkClient, err := getBuildkitClient(ctx)
+			if err != nil {
+				return executable, err
+			}
+			defer bkClient.Close()
+			p, err := detectPlatform(ctx, bkClient)
+			if err != nil {
+				return executable, err
+			}
+			platform = &p
+		} else {
+			platform = bkPlatform
+		}
+
 		opts := dockerfile2llb.ConvertOpt{
-			Excludes: runnerConfig.Excludes,
+			Excludes:       runnerConfig.Excludes,
+			TargetPlatform: platform,
 			ContextByName: func(ctx context.Context, name, resolveMode string, p *specs.Platform) (*llb.State, *dockerfile2llb.Image, error) {
 				if !strings.HasPrefix(name, "docker.io/library/src") {
 					return nil, nil, nil
