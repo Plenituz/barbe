@@ -11,11 +11,13 @@ import (
 	"bufio"
 	"context"
 	"github.com/containerd/containerd/platforms"
+	"github.com/docker/cli/cli/config"
 	bk "github.com/moby/buildkit/client"
 	"github.com/moby/buildkit/client/llb"
 	"github.com/moby/buildkit/frontend/dockerfile/dockerfile2llb"
 	bkgw "github.com/moby/buildkit/frontend/gateway/client"
 	"github.com/moby/buildkit/session"
+	"github.com/moby/buildkit/session/auth/authprovider"
 	specs "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog/log"
@@ -491,6 +493,7 @@ func executeRunner(ctx context.Context, executable runnerExecutable, output *cor
 		},
 		Session: []session.Attachable{
 			socketprovider.NewDockerSocketProvider(),
+			authprovider.NewDockerAuthProvider(config.LoadDefaultConfigFile(os.Stderr)),
 		},
 	}
 
