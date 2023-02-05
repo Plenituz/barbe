@@ -400,7 +400,6 @@ func buildLlbDefinition(ctx context.Context, runnerConfig runnerConfig) (runnerE
 			if err != nil {
 				return executable, err
 			}
-			defer bkClient.Close()
 			p, err := detectPlatform(ctx, bkClient)
 			if err != nil {
 				return executable, err

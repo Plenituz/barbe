@@ -9,6 +9,18 @@ import (
 	"reflect"
 )
 
+func ExtractAsBool(read SyntaxToken) (bool, error) {
+	switch read.Type {
+	case TokenTypeLiteralValue:
+		if maybeBool, ok := read.Value.(bool); ok {
+			return maybeBool, nil
+		}
+		return false, fmt.Errorf("invalid type for bool")
+	default:
+		return false, fmt.Errorf("unexpected type for bool extraction: %s", read.Type)
+	}
+}
+
 func ExtractAsStringValue(read SyntaxToken) (string, error) {
 	switch read.Type {
 	case TokenTypeScopeTraversal:

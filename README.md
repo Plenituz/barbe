@@ -82,7 +82,7 @@ template {
   # these are the links to the manifests that contain the components
   manifest = [
     # We can start from some open source manifest for the cloud resources
-    "https://hub.barbe.app/barbe-serverless/manifest/v0.1.0/.json",
+    "https://hub.barbe.app/barbe-serverless/manifest/latest/.json",
     # then you can add your own sprinkles, this would link to
     # the components that generates your custom service mesh configs
     "https://mycompany.com/custom-service-mesh-stuff.json"

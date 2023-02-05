@@ -72,11 +72,26 @@ func (t GcpTokenProviderTransformer) Transform(ctx context.Context, data core.Co
 }
 
 func populateGcpToken(ctx context.Context, dataBag core.DataBag) (core.DataBag, error) {
+	optional := false
+	if dataBag.Value.Type == core.TokenTypeObjectConst {
+		optionalTokens := core.GetObjectKeyValues("optional", dataBag.Value.ObjectConst)
+		if len(optionalTokens) == 1 {
+			tmp, err := core.ExtractAsBool(optionalTokens[0])
+			if err == nil {
+				optional = tmp
+			}
+		}
+	}
+
 	chown_util.TryAdjustRootHomeDir(ctx)
 	creds, err := GetCredentials(ctx, []string{
 		"https://www.googleapis.com/auth/cloud-platform",
-	}, false)
+	}, false, optional)
 	if err != nil {
+		if optional {
+			log.Debug().Msgf("error getting optional gcp credentials: %s", err.Error())
+			return core.DataBag{}, nil
+		}
 		return core.DataBag{}, errors.Wrap(err, "error getting gcp credentials")
 	}
 
@@ -116,7 +131,7 @@ type staticTokenSource struct {
 	oauth2.TokenSource
 }
 
-func GetCredentials(ctx context.Context, clientScopes []string, initialCredentialsOnly bool) (googleoauth.Credentials, error) {
+func GetCredentials(ctx context.Context, clientScopes []string, initialCredentialsOnly bool, optional bool) (googleoauth.Credentials, error) {
 	//TODO read terraform config it may have access_token, credentials or impersonate_service_account
 	credentials := multiEnvSearch([]string{
 		"GOOGLE_CREDENTIALS",
@@ -182,6 +197,9 @@ func GetCredentials(ctx context.Context, clientScopes []string, initialCredentia
 
 	defaultTS, err := googleoauth.DefaultTokenSource(context.Background(), clientScopes...)
 	if err != nil {
+		if optional {
+			return googleoauth.Credentials{}, err
+		}
 		log.Ctx(ctx).Debug().Err(err).Msg("original error getting default token source")
 		startFlow, err := logger.PromptUserYesNo(ctx, "Couldn't locate Google Cloud credentials. You can run 'gcloud auth application-default login' if you have it installed, or Barbe can start the browser authentication flow directly. Would you like to start the browser authentication flow?")
 		if err != nil {
