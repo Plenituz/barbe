@@ -1,3 +1,8 @@
+# NOTICE: This page is out of date, components should now be written in JS or WASM
+
+If you're trying to write a component, reach out to us on [Discord](https://discord.gg/6Cwa6A8nF8)
+
+
 # Writing templates
 
 Templates are currently written in [jsonnet](https://jsonnet.org/), it's a data templating language that's fairly easy

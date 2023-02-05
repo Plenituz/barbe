@@ -21,13 +21,11 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"os/user"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 )
 
@@ -375,14 +373,7 @@ func receiveAuthCallback(ctx context.Context, uri string, port int, timeout time
 }
 
 func openBrowser(url string) error {
-	return browser.OpenURL(url, func(cmd *exec.Cmd) {
-		if uid, gid, err := chown_util.GetSudoerUser(); err == nil && uid != -1 && gid != -1 {
-			if cmd.SysProcAttr == nil {
-				cmd.SysProcAttr = &syscall.SysProcAttr{}
-			}
-			cmd.SysProcAttr.Credential = &syscall.Credential{Uid: uint32(uid), Gid: uint32(gid)}
-		}
-	})
+	return browser.OpenURL(url, editCmd)
 }
 
 func findAvailablePort(startFrom int) int {

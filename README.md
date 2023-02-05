@@ -24,6 +24,8 @@ As developers, we care about concepts, ideas, like "serverless functions", "java
 Each vendor has their own way of implementing these concepts, and I don't want to learn 5 GCP services just to "deploy my Next.js front end".
 Barbe does the heavy lifting of translating these concepts into vendor specific resources, so you can write `nextjs_hosting` instead of `google_cloud_run_service`, `google_container_registry` and 12 others.
 
+Interested? Need some help? Reach out on [Discord](https://discord.gg/6Cwa6A8nF8)!
+
 Projects using Barbe:
 - [Barbe-serverless](https://github.com/Plenituz/barbe-serverless): Deploy serverless applications to AWS
 - [Anyfront](https://github.com/Plenituz/anyfront): Deploy any front-end web application on any cloud platform with minimal configuration
@@ -114,18 +116,19 @@ Components can easily be designed to allow you to override parts of the generate
 
 ## How does it work?
 
-To run barbe, you use the `generate` command: 
+To run barbe, you use the `apply` command: 
 ```bash
-barbe generate config.hcl
+barbe apply config.hcl
 ```
 
-The command works in 4 steps:
+This will:
 
 1. Parse the input file(s) `config.hcl` into an internal language agnostic syntax representation, "Databags" (basically collections of syntax tokens, an AST)
-2. Download the manifests defined in the `template` block, and the list of components in the manifest. Components are written in [Jsonnet](https://jsonnet.org/), a **_sandboxed_** declarative language. Support for WASM is planned.
+2. Download the manifests defined in the `template` block, and the list of components in the manifest. Components are **_sandboxed_** using WASM.
 3. Execute each component giving it the parsed syntax tokens from step 1 as an input. Each component will generate additional syntax tokens
-4. While executing, components can use `buildkit` to execute containers of all sorts. This let's the component developer use any tooling without you having to install it
+4. While executing, components can use `buildkit` to execute containers of all sorts. This lets the component developer use any tooling without you having to install it, and keep everything sandboxed.
 5. The syntax tokens will then be interpreted by various formatters which will generate the output files in the given "dist" directory (terraform files, service mesh configs, webpack.config.js, Dockerfiles, etc)
+6. More components can then run to execute actions on the generated files (`terraform apply`, `docker push`, etc)
 
 <p align="center">
   <img src="./readme_img_2.png" width="400" />

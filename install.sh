@@ -303,7 +303,7 @@ execute() {
     install "${srcdir}/${binexe}" "${bin_dir}"
     # remove quarantine attribute on macOS, until we can sign the binary
     test "$(uname_os)" = "darwin" && (xattr -d com.apple.quarantine "${bin_dir}/${binexe}" || true)
-    log_info "installed ${bin_dir}/${binexe}"
+    log_info "installed ${install_to}/${bin_dir}/${binexe}"
     rm -rf "${tmpdir}"
 
     # for mac only, install brew if required, then install docker
