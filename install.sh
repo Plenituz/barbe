@@ -2,9 +2,8 @@
 
 # to run this:
 # on mac:
-# cd /usr/local && curl -L https://hub.barbe.app/install.sh | sh
-# on linux:
-# cd /usr/local && curl -L https://hub.barbe.app/install.sh | sudo sh
+# curl -fsSL https://hub.barbe.app/install.sh -o install.sh
+# sh install.sh
 # it will prompt you for you password without writing anything
 
 set -e
@@ -13,6 +12,8 @@ binexe="barbe"
 repo="Plenituz/barbe"
 base="https://github.com/${repo}/releases/download"
 version="${BARBE_VERSION:-latest}"
+install_to="${BARBE_INSTALL_TO:-/usr/local}"
+cd $install_to
 
 cat /dev/null <<EOF
 ------------------------------------------------------------------------
@@ -302,7 +303,7 @@ execute() {
     log_info "installed ${bin_dir}/${binexe}"
     rm -rf "${tmpdir}"
 
-    # for mac only, install brew if required, then install docker. using the test command
+    # for mac only, install brew if required, then install docker
     if [ "$(uname_os)" = "darwin" ]; then
         if ! is_command brew
         then
@@ -315,11 +316,20 @@ execute() {
         # try to run docker info, if it doesn't work, with the message "Cannot connect to the Docker daemon", then install colima using brew
         if ! docker info
         then
-          # ask the user if they want us to install colima for them
-          read -p "No container runtime is running. Would you like to install/start Colima (if you're not sure, yes is a good answer)? (y/n) " -n 1 -r
-          echo
-          if [[ $REPLY =~ ^[Yy]$ ]]
+          # ask the user if they want us to install colima for them. If the script has a "-y" argument, then we assume yes
+          if [[ "$@" != *"-y"* ]]
           then
+            read -p "No container runtime is running. Would you like to install/start Colima (if you're not sure, yes is a good answer)? You can also install or start the Docker runtime yourself and re-run this script at https://docs.docker.com/desktop/install/mac-install/. (y/n) " -n 1 -r
+            echo
+            if [[ $REPLY =~ ^[Yy]$ ]]
+            then
+              if ! is_command colima
+              then
+                  brew install colima
+              fi
+              colima start
+            fi
+          else
             if ! is_command colima
             then
                 brew install colima
@@ -334,20 +344,31 @@ execute() {
         if ! is_command docker
         then
             # ask the user if they want us to install docker for them
-            read -p "No container runtime is running. Would you like to install/start Docker (if you're not sure, yes is a good answer)? (y/n) " -n 1 -r
-            echo
-            if [[ $REPLY =~ ^[Yy]$ ]]
+            if [[ "$@" != *"-y"* ]]
             then
-                if ! is_command docker
-                then
-                    curl -fsSL https://get.docker.com -o get-docker.sh
-                    sh get-docker.sh
-                fi
-                # start docker, make it work on most linux distros
-                sudo systemctl start docker || sudo service docker start || sudo service docker.io start
+              read -p "No container runtime is running. Would you like to install/start Docker (if you're not sure, yes is a good answer)? (y/n) " -n 1 -r
+              echo
+              if [[ $REPLY =~ ^[Yy]$ ]]
+              then
+                  if ! is_command docker
+                  then
+                      curl -fsSL https://get.docker.com -o get-docker.sh
+                      sh get-docker.sh
+                  fi
+                  # start docker, make it work on most linux distros
+                  sudo systemctl start docker || sudo service docker start || sudo service docker.io start
+              fi
+            else
+              if ! is_command docker
+              then
+                  curl -fsSL https://get.docker.com -o get-docker.sh
+                  sh get-docker.sh
+              fi
+              # start docker, make it work on most linux distros
+              sudo systemctl start docker || sudo service docker start || sudo service docker.io start
             fi
         fi
     fi
 }
 
-execute
+execute "$1"
