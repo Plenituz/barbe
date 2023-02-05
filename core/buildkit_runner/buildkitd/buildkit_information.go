@@ -41,7 +41,9 @@ func GetDockerSocketLocation() (string, error) {
 	if currentContext == "" {
 		return "", fmt.Errorf("could not find current context")
 	}
-	return strings.TrimPrefix(currentContext, "unix://"), nil
+	currentContext = strings.TrimPrefix(currentContext, "unix://")
+	currentContext = strings.TrimPrefix(currentContext, "npipe://")
+	return currentContext, nil
 }
 
 func getBuildkitInformation(ctx context.Context) (*BuildkitInformation, error) {
