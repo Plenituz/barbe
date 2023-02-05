@@ -4,7 +4,10 @@
 # on mac:
 # curl -fsSL https://hub.barbe.app/install.sh -o install.sh
 # sh install.sh
-# it will prompt you for you password without writing anything
+#
+# on linux:
+# curl -fsSL https://hub.barbe.app/install.sh -o install.sh
+# sudo sh install.sh
 
 set -e
 
@@ -353,7 +356,7 @@ execute() {
                   if ! is_command docker
                   then
                       curl -fsSL https://get.docker.com -o get-docker.sh
-                      sh get-docker.sh
+                      sudo sh get-docker.sh || sudo yum install docker -y
                   fi
                   # start docker, make it work on most linux distros
                   sudo systemctl start docker || sudo service docker start || sudo service docker.io start
@@ -362,7 +365,7 @@ execute() {
               if ! is_command docker
               then
                   curl -fsSL https://get.docker.com -o get-docker.sh
-                  sh get-docker.sh
+                  sudo sh get-docker.sh || sudo yum install docker -y
               fi
               # start docker, make it work on most linux distros
               sudo systemctl start docker || sudo service docker start || sudo service docker.io start
