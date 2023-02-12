@@ -1,6 +1,6 @@
 # NOTICE: This page is out of date, components should now be written in JS or WASM
 
-If you're trying to write a component, reach out to us on [Discord](https://discord.gg/6Cwa6A8nF8)
+If you're trying to write a component, reach out to us on [Discord](https://hub.barbe.app/discord)
 
 
 # Writing templates

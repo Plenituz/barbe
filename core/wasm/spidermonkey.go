@@ -12,6 +12,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
+	"io"
 	"os"
 	"sync"
 	"time"
@@ -111,13 +112,29 @@ func NewSpiderMonkeyExecutor(logger zerolog.Logger, outputDir string) (*SpiderMo
 	return exec, nil
 }
 
-func (s *SpiderMonkeyExecutor) Execute(protocol RpcProtocol, fileName string, jsContent []byte, input []byte, envVars map[string]string, state []byte) error {
+func (s *SpiderMonkeyExecutor) Execute(ctx context.Context, protocol RpcProtocol, fileName string, jsContent []byte, input []byte, envVars map[string]string, state []byte) error {
 	s.wgAllExecs.Add(1)
 	defer s.wgAllExecs.Done()
 	fakeFs := semiRealFs{
 		fileName:             {Data: jsContent},
 		"__barbe_input.json": {Data: input},
 		"__barbe_state.json": {Data: state},
+	}
+	protocol.RegisteredFunctions["statFile"] = func(args []any) (any, error) {
+		fileName := args[0].(string)
+		f, err := fakeFs.Open(fileName)
+		if err != nil {
+			return nil, err
+		}
+		stat, err := f.Stat()
+		if err != nil {
+			return nil, err
+		}
+		return map[string]interface{}{
+			"name":  stat.Name(),
+			"isDir": stat.IsDir(),
+			"size":  stat.Size(),
+		}, nil
 	}
 
 	stdinReader, stdinWriter, err := os.Pipe()
@@ -141,9 +158,19 @@ func (s *SpiderMonkeyExecutor) Execute(protocol RpcProtocol, fileName string, js
 	lines := make(chan []byte)
 	go func() {
 		defer wg.Done()
-		scanner := bufio.NewScanner(stdoutReader)
-		for scanner.Scan() {
-			lines <- scanner.Bytes()
+		//bufio.Scanner doesn't work here because it breaks if the received data is too large
+		reader := bufio.NewReader(stdoutReader)
+		for {
+			line, err := reader.ReadBytes('\n')
+			if err != nil {
+				if err == io.EOF {
+					break
+				}
+				//this will probably make the whole process hang if it happens
+				s.logger.Error().Msgf("error reading stdout of '%s': %s", fileName, err.Error())
+				break
+			}
+			lines <- line
 		}
 		close(lines)
 	}()
@@ -165,7 +192,8 @@ func (s *SpiderMonkeyExecutor) Execute(protocol RpcProtocol, fileName string, js
 					continue
 				}
 				if len(resp) == 0 {
-					s.logger.Debug().Msgf(string(line))
+					s.logger.Debug().Msg(string(line))
+					//s.logger.Debug().Msgf("%s: %s", core.ContextScopeKey(ctx), string(line))
 					continue
 				}
 				_, err = stdinWriter.Write(append(resp, []byte("\n")...))

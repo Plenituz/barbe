@@ -8,6 +8,8 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
+	"path"
+	"regexp"
 	"runtime"
 	"strings"
 	"sync"
@@ -61,16 +63,80 @@ func (fetcher *Fetcher) Fetch(url string) (FileDescription, error) {
 	return file, nil
 }
 
+// anyfront/manifest.json:v0.2.1
+var BarbeHubRegex = regexp.MustCompile(`^(?P<owner>[a-zA-Z0-9-_]+)/(?P<comp>[a-zA-Z0-9-_]+)\.(?P<ext>[a-zA-Z0-9.]+):?(?P<tag>[a-zA-Z0-9.]+)?$`)
+
+const BarbeHubDomain = "hub.barbe.app"
+
+func ExtractExtension(fileUrl string) string {
+	switch {
+	case strings.HasPrefix(fileUrl, "file://"),
+		strings.HasPrefix(fileUrl, "http://"),
+		strings.HasPrefix(fileUrl, "https://"):
+		return path.Ext(fileUrl)
+	case strings.HasPrefix(fileUrl, "base64://"):
+		return ""
+	}
+	if _, err := os.Stat(fileUrl); !os.IsNotExist(err) {
+		return path.Ext(fileUrl)
+	}
+	//try barbe hub
+	_, _, ext, _, err := ParseBarbeHubIdentifier(fileUrl)
+	if err != nil {
+		return ""
+	}
+	return ext
+}
+
 func FetchFile(fileUrl string) ([]byte, error) {
 	if strings.HasPrefix(fileUrl, "file://") {
 		return fetchLocalFile(strings.TrimPrefix(fileUrl, "file://"))
-	} else if strings.HasPrefix(fileUrl, "http://") || strings.HasPrefix(fileUrl, "https://") {
+	}
+	if strings.HasPrefix(fileUrl, "http://") || strings.HasPrefix(fileUrl, "https://") {
 		return fetchRemoteFile(fileUrl)
-	} else if strings.HasPrefix(fileUrl, "base64://") {
+	}
+	if strings.HasPrefix(fileUrl, "base64://") {
 		return decodeBase64File(strings.TrimPrefix(fileUrl, "base64://"))
-	} else {
+	}
+	if _, err := os.Stat(fileUrl); !os.IsNotExist(err) {
 		return fetchLocalFile(fileUrl)
 	}
+	//try barbe hub
+	owner, component, ext, tag, err := ParseBarbeHubIdentifier(fileUrl)
+	if err != nil {
+		return nil, errors.New("unknown file type")
+	}
+	barbeHubUrl := MakeBarbeHubUrl(owner, component, ext, tag)
+	return fetchRemoteFile(barbeHubUrl)
+}
+
+func MakeBarbeHubUrl(owner string, component string, ext string, tag string) string {
+	//https://hub.barbe.app/anyfront/anyfront.js:v0.2.1
+	return fmt.Sprintf("https://%s/%s/%s%s:%s", BarbeHubDomain, owner, component, ext, tag)
+}
+
+func ParseBarbeHubUrl(fileUrl string) (owner string, component string, ext string, tag string, e error) {
+	if !strings.HasPrefix(fileUrl, "https://"+BarbeHubDomain) {
+		return "", "", "", "", errors.New("not a barbe hub url")
+	}
+	fileUrl = strings.TrimPrefix(fileUrl, "https://"+BarbeHubDomain+"/")
+	return ParseBarbeHubIdentifier(fileUrl)
+}
+
+func ParseBarbeHubIdentifier(fileUrl string) (owner string, component string, ext string, tag string, e error) {
+	matches := BarbeHubRegex.FindAllStringSubmatch(fileUrl, 1)
+	if len(matches) == 0 {
+		return "", "", "", "", errors.New("not a barbe hub identifier")
+	}
+	match := matches[0]
+	owner = match[1]
+	component = match[2]
+	ext = "." + strings.ToLower(match[3])
+	tag = match[4]
+	if tag == "" {
+		tag = "latest"
+	}
+	return
 }
 
 func fetchLocalFile(filePath string) ([]byte, error) {

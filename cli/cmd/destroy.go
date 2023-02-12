@@ -17,11 +17,12 @@ import (
 )
 
 var destroyCmd = &cobra.Command{
-	Use:     "destroy [GLOB...]",
-	Short:   "Generate files based on the given configuration, and execute all the appliers that will destroy the previously deployed resources",
-	Args:    cobra.ArbitraryArgs,
-	Example: "barbe destroy config.hcl\nbarbe destroy **/*.hcl --output dist",
-	Run: func(cmd *cobra.Command, args []string) {
+	Use:          "destroy [GLOB...]",
+	Short:        "Generate files based on the given configuration, and execute all the appliers that will destroy the previously deployed resources",
+	Args:         cobra.ArbitraryArgs,
+	Example:      "barbe destroy config.hcl\nbarbe destroy **/*.hcl --output dist",
+	SilenceUsage: true,
+	RunE: func(cmd *cobra.Command, args []string) error {
 		if err := viper.BindPFlags(cmd.Flags()); err != nil {
 			panic(err)
 		}
@@ -38,7 +39,7 @@ var destroyCmd = &cobra.Command{
 		allFiles, err := cliutils.ReadAllFilesMatching(ctx, args)
 		if err != nil {
 			lg.Error().Err(err).Msg("failed to read files")
-			return
+			return err
 		}
 
 		fileNames := make([]string, 0, len(allFiles))
@@ -82,7 +83,7 @@ var destroyCmd = &cobra.Command{
 				},
 			})
 			log.Ctx(ctx).Error().Err(err).Msg("")
-			return
+			return err
 		}
 		analytics.QueueEvent(ctx, analytics.AnalyticsEvent{
 			EventType: "ExecutionEnd",
@@ -90,5 +91,6 @@ var destroyCmd = &cobra.Command{
 				"Success": true,
 			},
 		})
+		return nil
 	},
 }

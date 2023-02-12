@@ -9,6 +9,7 @@ import (
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/imports/assemblyscript"
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
+	"io"
 	"os"
 	"sync"
 )
@@ -44,6 +45,7 @@ func (s *WasmExecutor) Compile(wasmContent []byte) (wazero.CompiledModule, error
 }
 
 func (s *WasmExecutor) Execute(compiledCode wazero.CompiledModule, protocol RpcProtocol, input []byte) error {
+	return errors.New("not maintained, create an issue to prioritize pure wasm support")
 	s.wgAllExecs.Add(1)
 	defer s.wgAllExecs.Done()
 
@@ -68,9 +70,19 @@ func (s *WasmExecutor) Execute(compiledCode wazero.CompiledModule, protocol RpcP
 	lines := make(chan []byte)
 	go func() {
 		defer wg.Done()
-		scanner := bufio.NewScanner(stdoutReader)
-		for scanner.Scan() {
-			lines <- scanner.Bytes()
+		//bufio.Scanner doesn't work here because it breaks if the received data is too large
+		reader := bufio.NewReader(stdoutReader)
+		for {
+			line, err := reader.ReadBytes('\n')
+			if err != nil {
+				if err == io.EOF {
+					break
+				}
+				//this will probably make the whole process hang if it happens
+				s.logger.Error().Msgf("error reading stdout: %s", err.Error())
+				break
+			}
+			lines <- line
 		}
 		close(lines)
 	}()

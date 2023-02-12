@@ -6,6 +6,7 @@ import (
 	"context"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"os"
 	"strings"
 )
 
@@ -43,10 +44,12 @@ func init() {
 }
 
 func Execute() {
-	defer analytics.Flush()
 	if err := rootCmd.Execute(); err != nil {
 		lg, closer := logger.New()
 		defer closer()
 		lg.Error().Err(err).Msg("failed to execute command")
+		analytics.Flush()
+		os.Exit(1)
 	}
+	analytics.Flush()
 }

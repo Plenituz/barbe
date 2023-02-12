@@ -17,11 +17,12 @@ import (
 )
 
 var applyCmd = &cobra.Command{
-	Use:     "apply [GLOB...]",
-	Short:   "Generate files based on the given configuration, and execute all the appliers that will deploy the generated files",
-	Args:    cobra.ArbitraryArgs,
-	Example: "barbe apply config.hcl --output dist\nbarbe apply **/*.hcl --output dist",
-	Run: func(cmd *cobra.Command, args []string) {
+	Use:          "apply [GLOB...]",
+	Short:        "Generate files based on the given configuration, and execute all the appliers that will deploy the generated files",
+	Args:         cobra.ArbitraryArgs,
+	Example:      "barbe apply config.hcl --output dist\nbarbe apply **/*.hcl --output dist",
+	SilenceUsage: true,
+	RunE: func(cmd *cobra.Command, args []string) error {
 		if err := viper.BindPFlags(cmd.Flags()); err != nil {
 			panic(err)
 		}
@@ -38,7 +39,7 @@ var applyCmd = &cobra.Command{
 		allFiles, err := cliutils.ReadAllFilesMatching(ctx, args)
 		if err != nil {
 			lg.Error().Err(err).Msg("failed to read files")
-			return
+			return err
 		}
 
 		fileNames := make([]string, 0, len(allFiles))
@@ -82,7 +83,7 @@ var applyCmd = &cobra.Command{
 				},
 			})
 			lg.Error().Err(err).Msg("")
-			return
+			return err
 		}
 		analytics.QueueEvent(ctx, analytics.AnalyticsEvent{
 			EventType: "ExecutionEnd",
@@ -90,5 +91,6 @@ var applyCmd = &cobra.Command{
 				"Success": true,
 			},
 		})
+		return nil
 	},
 }

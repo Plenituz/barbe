@@ -41,7 +41,7 @@ func (r RpcProtocol) HandleMessage(text []byte) ([]byte, error) {
 
 	result, err := f(req.Params)
 	if err != nil {
-		r.logger.Error().Str("req", string(text)).Err(err).Msgf("error executing rpc function '%s'", req.Method)
+		//r.logger.Error().Str("req", string(text)).Err(err).Msgf("error executing rpc function '%s'", req.Method)
 		resp, err := json.Marshal(rpcResponse{
 			Error: err.Error(),
 		})

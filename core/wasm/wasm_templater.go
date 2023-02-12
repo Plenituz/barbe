@@ -9,7 +9,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog"
 	"github.com/tetratelabs/wazero"
-	"path"
 )
 
 var rpcFuncBase = map[string]RpcFunc{}
@@ -75,7 +74,7 @@ func (h *WasmTemplater) Name() string {
 }
 
 func (h *WasmTemplater) Apply(ctx context.Context, maker *core.Maker, input core.ConfigContainer, template fetcher.FileDescription) (core.ConfigContainer, error) {
-	if path.Ext(template.Name) != ".wasm" {
+	if fetcher.ExtractExtension(template.Name) != ".wasm" {
 		return *core.NewConfigContainer(), nil
 	}
 	output := core.NewConfigContainer()

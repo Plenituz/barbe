@@ -79,7 +79,7 @@ func (h *SpiderMonkeyTemplater) Name() string {
 }
 
 func (h *SpiderMonkeyTemplater) Apply(ctx context.Context, maker *core.Maker, input core.ConfigContainer, template fetcher.FileDescription) (core.ConfigContainer, error) {
-	if path.Ext(template.Name) != ".js" {
+	if fetcher.ExtractExtension(template.Name) != ".js" {
 		return *core.NewConfigContainer(), nil
 	}
 	output := core.NewConfigContainer()
@@ -137,6 +137,7 @@ func (h *SpiderMonkeyTemplater) executeJs(ctx context.Context, maker *core.Maker
 	}
 	envVars["BARBE_COMMAND"] = maker.Command
 	envVars["BARBE_LIFECYCLE_STEP"] = maker.CurrentStep
+	envVars["BARBE_RUNNING_FILE"] = template.Name
 	envVars["BARBE_OUTPUT_DIR"] = maker.OutputDir
 
 	state := maker.StateHandler.GetState(core.ContextScopeKey(ctx))
@@ -145,7 +146,7 @@ func (h *SpiderMonkeyTemplater) executeJs(ctx context.Context, maker *core.Maker
 		return errors.Wrap(err, "failed to marshal state object")
 	}
 
-	err = h.executor.Execute(protocol, path.Base(template.Name), template.Content, ctxObjJson, envVars, stateJson)
+	err = h.executor.Execute(ctx, protocol, path.Base(template.Name), template.Content, ctxObjJson, envVars, stateJson)
 	if err != nil {
 		return errors.Wrap(err, "failed to execute wasm for '"+template.Name+"'")
 	}

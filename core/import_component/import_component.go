@@ -38,7 +38,7 @@ func (t *ComponentImporter) Transform(ctx context.Context, data core.ConfigConta
 			continue
 		}
 		for _, group := range m {
-		LOOP:
+			//LOOP:
 			for _, databag := range group {
 				if databag.Value.Type != core.TokenTypeObjectConst {
 					continue
@@ -95,21 +95,21 @@ func (t *ComponentImporter) Transform(ctx context.Context, data core.ConfigConta
 
 				//TODO this is kind of getting ignored in the spidermonkey js templater
 				//since it creates it's own import_component for each request (on purpose)
-				executeId := core.ContextScopeKey(ctx) + databag.Name
-				t.mutex.Lock()
-				if pastBags, ok := t.alreadyImported[executeId]; ok {
-					for _, pastBag := range pastBags {
-						if core.ConfigContainerDeepEqual(pastBag, *input) {
-							t.mutex.Unlock()
-							continue LOOP
-						}
-					}
-				}
-				if _, ok := t.alreadyImported[executeId]; !ok {
-					t.alreadyImported[executeId] = []core.ConfigContainer{}
-				}
-				t.alreadyImported[executeId] = append(t.alreadyImported[databag.Name], *input.Clone())
-				t.mutex.Unlock()
+				//executeId := core.ContextScopeKey(ctx) + databag.Name
+				//t.mutex.Lock()
+				//if pastBags, ok := t.alreadyImported[executeId]; ok {
+				//	for _, pastBag := range pastBags {
+				//		if core.ConfigContainerDeepEqual(pastBag, *input) {
+				//			t.mutex.Unlock()
+				//			continue LOOP
+				//		}
+				//	}
+				//}
+				//if _, ok := t.alreadyImported[executeId]; !ok {
+				//	t.alreadyImported[executeId] = []core.ConfigContainer{}
+				//}
+				//t.alreadyImported[executeId] = append(t.alreadyImported[databag.Name], *input.Clone())
+				//t.mutex.Unlock()
 
 				componentUrlTokens := core.GetObjectKeyValues("url", databag.Value.ObjectConst)
 				if len(componentUrlTokens) == 0 {
@@ -129,6 +129,7 @@ func (t *ComponentImporter) Transform(ctx context.Context, data core.ConfigConta
 						return errors.Wrap(err, "error fetching component")
 					}
 
+					log.Ctx(ctx).Debug().Msgf("importing component '%s'", file.Name)
 					newBags, err := maker.ApplyComponent(ctx, file, *input)
 					if err != nil {
 						return errors.Wrap(err, "error applying component '"+componentUrl+"'")

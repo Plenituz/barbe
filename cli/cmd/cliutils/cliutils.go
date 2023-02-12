@@ -24,10 +24,10 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/viper"
 	"io/fs"
-	"net/url"
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -39,20 +39,33 @@ func ReadAllFilesMatching(ctx context.Context, globExprs []string) ([]fetcher.Fi
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to glob %s", globExpr)
 		}
-		for _, match := range matches {
-			fileContent, err := os.ReadFile(match)
+
+		if len(matches) == 0 {
+			b, err := fetcher.FetchFile(globExpr)
 			if err != nil {
-				log.Ctx(ctx).Error().Err(err).Msg("reading file failed")
+				log.Ctx(ctx).Debug().Err(err).Msg("fetching file failed")
 				continue
 			}
-			if _, ok := dedupMap[match]; ok {
-				continue
-			}
-			dedupMap[match] = struct{}{}
 			allFiles = append(allFiles, fetcher.FileDescription{
-				Name:    match,
-				Content: fileContent,
+				Name:    globExpr,
+				Content: b,
 			})
+		} else {
+			for _, match := range matches {
+				fileContent, err := os.ReadFile(match)
+				if err != nil {
+					log.Ctx(ctx).Error().Err(err).Msg("reading file failed")
+					continue
+				}
+				if _, ok := dedupMap[match]; ok {
+					continue
+				}
+				dedupMap[match] = struct{}{}
+				allFiles = append(allFiles, fetcher.FileDescription{
+					Name:    match,
+					Content: fileContent,
+				})
+			}
 		}
 	}
 	return allFiles, nil
@@ -77,22 +90,17 @@ func IterateDirectories(ctx context.Context, command core.MakeCommand, allFiles 
 			if os.Getenv("BARBE_LOCAL") != "" {
 				localDirs := strings.Split(os.Getenv("BARBE_LOCAL"), ":")
 				maker.Fetcher.UrlTransformer = func(s string) string {
-					parsedUrl, err := url.Parse(s)
+					owner, component, ext, _, err := fetcher.ParseBarbeHubIdentifier(s)
 					if err != nil {
-						//log.Ctx(ctx).Warn().Err(err).Msg("failed to parse component name in url transformer")
-						return s
+						_, component, ext, _, err = fetcher.ParseBarbeHubUrl(s)
+						if err != nil {
+							return s
+						}
 					}
-					split := strings.Split(parsedUrl.Path, "/")
-					if len(split) < 3 {
-						//log.Ctx(ctx).Warn().Err(err).Msg("failed to parse component name in url transformer")
-						return s
-					}
-					componentName := split[2]
-					ext := split[len(split)-1]
-					lookingFor := componentName + ext
+					lookingFor := component + ext
 
 					foundErr := errors.New("found")
-					found := ""
+					found := make([]string, 0)
 					for _, dir := range localDirs {
 						err = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 							if err != nil {
@@ -102,23 +110,31 @@ func IterateDirectories(ctx context.Context, command core.MakeCommand, allFiles 
 							if d.Name() != lookingFor {
 								return nil
 							}
-							found = path
-							return foundErr
+							index := strings.Index(path, owner)
+							if index == -1 || index > strings.Index(path, component) {
+								return nil
+							}
+							found = append(found, path)
+							return nil
 						})
 						if err != nil && !errors.Is(err, foundErr) {
 							log.Ctx(ctx).Warn().Err(err).Msg("failed to walk dir in url transformer")
 							continue
 						}
-						if found != "" {
-							break
-						}
 					}
-
-					if found == "" {
+					if len(found) == 0 {
 						//log.Ctx(ctx).Warn().Err(err).Msg("failed to find local component in url transformer")
 						return s
 					}
-					return found
+					sort.SliceStable(found, func(i, j int) bool {
+						depthI := strings.Count(found[i], "/")
+						depthJ := strings.Count(found[j], "/")
+						if depthI == depthJ {
+							return found[i] < found[j]
+						}
+						return depthI < depthJ
+					})
+					return found[0]
 				}
 			}
 

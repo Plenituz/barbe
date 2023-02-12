@@ -10,7 +10,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog/log"
 	"reflect"
-	"strings"
 )
 
 type JsonParser struct{}
@@ -20,7 +19,8 @@ func (j JsonParser) Name() string {
 }
 
 func (j JsonParser) CanParse(ctx context.Context, fileDesc fetcher.FileDescription) (bool, error) {
-	return strings.HasSuffix(strings.ToLower(fileDesc.Name), ".json"), nil
+	l := fetcher.ExtractExtension(fileDesc.Name)
+	return l == ".json", nil
 }
 
 func (j JsonParser) Parse(ctx context.Context, fileDesc fetcher.FileDescription, container *core.ConfigContainer) error {

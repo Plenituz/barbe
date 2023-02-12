@@ -5,7 +5,6 @@ import (
 	"barbe/core/fetcher"
 	"context"
 	_ "embed"
-	"path"
 )
 
 type JsonnetTemplater struct{}
@@ -15,7 +14,7 @@ func (h JsonnetTemplater) Name() string {
 }
 
 func (h JsonnetTemplater) Apply(ctx context.Context, maker *core.Maker, input core.ConfigContainer, template fetcher.FileDescription) (core.ConfigContainer, error) {
-	if path.Ext(template.Name) != ".jsonnet" {
+	if fetcher.ExtractExtension(template.Name) != ".jsonnet" {
 		c := core.NewConfigContainer()
 		return *c, nil
 	}

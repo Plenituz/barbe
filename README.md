@@ -24,7 +24,7 @@ As developers, we care about concepts, ideas, like "serverless functions", "java
 Each vendor has their own way of implementing these concepts, and I don't want to learn 5 GCP services just to "deploy my Next.js front end".
 Barbe does the heavy lifting of translating these concepts into vendor specific resources, so you can write `nextjs_hosting` instead of `google_cloud_run_service`, `google_container_registry` and 12 others.
 
-Interested? Need some help? Reach out on [Discord](https://discord.gg/6Cwa6A8nF8)!
+Interested? Need some help? Reach out on [Discord](https://hub.barbe.app/discord)!
 
 Projects using Barbe:
 - [Barbe-serverless](https://github.com/Plenituz/barbe-serverless): Deploy serverless applications to AWS
