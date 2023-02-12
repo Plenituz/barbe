@@ -72,7 +72,10 @@ func ReadAllFilesMatching(ctx context.Context, globExprs []string) ([]fetcher.Fi
 }
 
 func IterateDirectories(ctx context.Context, command core.MakeCommand, allFiles []fetcher.FileDescription, f func(dirFiles []fetcher.FileDescription, ctx context.Context, maker *core.Maker) error) error {
-	grouped := groupFilesByDirectory(allFiles)
+	grouped, err := groupFilesByDirectory(allFiles)
+	if err != nil {
+		return errors.Wrap(err, "failed to group files by directory")
+	}
 	for dir, files := range grouped {
 		err := func() error {
 			log.Ctx(ctx).Debug().Msg("executing maker for directory: '" + dir + "'")
@@ -99,7 +102,6 @@ func IterateDirectories(ctx context.Context, command core.MakeCommand, allFiles 
 					}
 					lookingFor := component + ext
 
-					foundErr := errors.New("found")
 					found := make([]string, 0)
 					for _, dir := range localDirs {
 						err = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
@@ -117,7 +119,7 @@ func IterateDirectories(ctx context.Context, command core.MakeCommand, allFiles 
 							found = append(found, path)
 							return nil
 						})
-						if err != nil && !errors.Is(err, foundErr) {
+						if err != nil {
 							log.Ctx(ctx).Warn().Err(err).Msg("failed to walk dir in url transformer")
 							continue
 						}
@@ -234,13 +236,25 @@ func expand(globs []string) ([]string, error) {
 	return matches, nil
 }
 
-func groupFilesByDirectory(files []fetcher.FileDescription) map[string][]fetcher.FileDescription {
+func groupFilesByDirectory(files []fetcher.FileDescription) (map[string][]fetcher.FileDescription, error) {
 	result := make(map[string][]fetcher.FileDescription)
 	for _, file := range files {
+		if _, _, _, _, err := fetcher.ParseBarbeHubIdentifier(file.Name); err == nil {
+			result["."] = append(result["."], file)
+			continue
+		}
+		if _, _, _, _, err := fetcher.ParseBarbeHubUrl(file.Name); err == nil {
+			result["."] = append(result["."], file)
+			continue
+		}
+		if strings.HasPrefix(file.Name, "http://") || strings.HasPrefix(file.Name, "https://") {
+			result["."] = append(result["."], file)
+			continue
+		}
 		dir := filepath.Dir(file.Name)
 		result[dir] = append(result[dir], file)
 	}
-	return result
+	return result, nil
 }
 
 func makeMaker(ctx context.Context, command core.MakeCommand, dir string) (*core.Maker, error) {

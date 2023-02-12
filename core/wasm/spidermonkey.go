@@ -14,6 +14,7 @@ import (
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
 	"io"
 	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -192,7 +193,7 @@ func (s *SpiderMonkeyExecutor) Execute(ctx context.Context, protocol RpcProtocol
 					continue
 				}
 				if len(resp) == 0 {
-					s.logger.Debug().Msg(string(line))
+					s.logger.Debug().Msg(strings.TrimSuffix(string(line), "\n"))
 					//s.logger.Debug().Msgf("%s: %s", core.ContextScopeKey(ctx), string(line))
 					continue
 				}

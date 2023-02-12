@@ -69,7 +69,13 @@ var BarbeHubRegex = regexp.MustCompile(`^(?P<owner>[a-zA-Z0-9-_]+)/(?P<comp>[a-z
 const BarbeHubDomain = "hub.barbe.app"
 
 func ExtractExtension(fileUrl string) string {
+	_, _, ext1, _, errHudId := ParseBarbeHubIdentifier(fileUrl)
+	_, _, ext2, _, errHudUrl := ParseBarbeHubUrl(fileUrl)
 	switch {
+	case errHudId == nil:
+		return ext1
+	case errHudUrl == nil:
+		return ext2
 	case strings.HasPrefix(fileUrl, "file://"),
 		strings.HasPrefix(fileUrl, "http://"),
 		strings.HasPrefix(fileUrl, "https://"):
@@ -80,12 +86,7 @@ func ExtractExtension(fileUrl string) string {
 	if _, err := os.Stat(fileUrl); !os.IsNotExist(err) {
 		return path.Ext(fileUrl)
 	}
-	//try barbe hub
-	_, _, ext, _, err := ParseBarbeHubIdentifier(fileUrl)
-	if err != nil {
-		return ""
-	}
-	return ext
+	return ""
 }
 
 func FetchFile(fileUrl string) ([]byte, error) {

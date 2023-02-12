@@ -477,7 +477,7 @@ func executeLlbDefinition(ctx context.Context, name string, bkClient *bk.Client,
 					logger("error reading bk stdout: " + err.Error())
 					break
 				}
-				l := string(line)
+				l := strings.TrimSuffix(string(line), "\n")
 				if l != "" {
 					logger(l)
 				}
