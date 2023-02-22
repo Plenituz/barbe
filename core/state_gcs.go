@@ -17,7 +17,7 @@ type GCSStatePersister struct {
 }
 
 func NewGCSStatePersister(ctx context.Context, params SyntaxToken) (GCSStatePersister, error) {
-	objI, err := TokenToGoValue(params)
+	objI, err := TokenToGoValue(params, false)
 	if InterfaceIsNil(objI) {
 		return GCSStatePersister{}, fmt.Errorf("error extracting GCSStatePersister params, params is nil: %w", err)
 	}

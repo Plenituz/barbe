@@ -363,7 +363,7 @@ func TokensDeepEqual(a SyntaxToken, b SyntaxToken) bool {
 }
 
 //turn a syntax token into a go value. Returns a partial value if an error occurs when possible
-func TokenToGoValue(token SyntaxToken) (interface{}, error) {
+func TokenToGoValue(token SyntaxToken, keepObjectMeta bool) (interface{}, error) {
 	switch token.Type {
 	default:
 		return nil, fmt.Errorf("unexpected token type: '%s'", token.Type)
@@ -388,26 +388,29 @@ func TokenToGoValue(token SyntaxToken) (interface{}, error) {
 		return v, nil
 	case TokenTypeParens:
 		if token.Source != nil {
-			return TokenToGoValue(*token.Source)
+			return TokenToGoValue(*token.Source, keepObjectMeta)
 		}
 		return nil, nil
 	case TokenTypeObjectConst:
 		obj := make(map[string]interface{})
 		var hasErr error
 		for _, pair := range token.ObjectConst {
-			v, err := TokenToGoValue(pair.Value)
+			v, err := TokenToGoValue(pair.Value, keepObjectMeta)
 			if err != nil {
 				hasErr = err
 				continue
 			}
 			obj[pair.Key] = v
 		}
+		if keepObjectMeta && len(token.Meta) > 0 {
+			obj["Meta"] = token.Meta
+		}
 		return obj, hasErr
 	case TokenTypeArrayConst:
 		arr := make([]interface{}, 0, len(token.ArrayConst))
 		var hasErr error
 		for _, item := range token.ArrayConst {
-			v, err := TokenToGoValue(item)
+			v, err := TokenToGoValue(item, keepObjectMeta)
 			if err != nil {
 				hasErr = err
 				continue

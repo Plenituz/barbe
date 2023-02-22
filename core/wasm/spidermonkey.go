@@ -167,6 +167,9 @@ func (s *SpiderMonkeyExecutor) Execute(ctx context.Context, protocol RpcProtocol
 				if err == io.EOF {
 					break
 				}
+				if err.Error() == "read |0: file already closed" {
+					break
+				}
 				//this will probably make the whole process hang if it happens
 				s.logger.Error().Msgf("error reading stdout of '%s': %s", fileName, err.Error())
 				break

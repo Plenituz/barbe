@@ -27,7 +27,7 @@ type S3StatePersister struct {
 }
 
 func NewS3StatePersister(ctx context.Context, params SyntaxToken) (S3StatePersister, error) {
-	objI, err := TokenToGoValue(params)
+	objI, err := TokenToGoValue(params, false)
 	if InterfaceIsNil(objI) {
 		return S3StatePersister{}, fmt.Errorf("error extracting S3StatePersister params, params is nil: %w", err)
 	}

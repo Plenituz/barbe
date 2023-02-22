@@ -66,7 +66,7 @@ func (t *ComponentImporter) Transform(ctx context.Context, data core.ConfigConta
 								if len(value) == 0 {
 									continue
 								}
-								obj, _ := core.TokenToGoValue(value[0])
+								obj, _ := core.TokenToGoValue(value[0], true)
 								if core.InterfaceIsNil(obj) {
 									continue
 								}

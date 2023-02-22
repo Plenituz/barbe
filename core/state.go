@@ -281,7 +281,7 @@ func (s *StateHandler) HandleStateActions(ctx context.Context, container *Config
 
 	sets := container.GetDataBagsOfType(BarbeStateSetDatabagType)
 	for _, bag := range sets {
-		objI, _ := TokenToGoValue(bag.Value)
+		objI, _ := TokenToGoValue(bag.Value, true)
 		if InterfaceIsNil(objI) {
 			log.Ctx(ctx).Warn().Msgf("barbe_state(set_value) '%s' has a value that is interpreted as nil, ignoring it", bag.Name)
 			continue
@@ -299,7 +299,7 @@ func (s *StateHandler) HandleStateActions(ctx context.Context, container *Config
 			log.Ctx(ctx).Warn().Msgf("barbe_state(put_in_object) '%s' has a value that is not an object, ignoring it", bag.Name)
 			continue
 		}
-		objI, _ := TokenToGoValue(bag.Value)
+		objI, _ := TokenToGoValue(bag.Value, true)
 		if InterfaceIsNil(objI) {
 			log.Ctx(ctx).Warn().Msgf("barbe_state(put_in_object) '%s' has a value that is interpreted as nil, ignoring it", bag.Name)
 			continue
