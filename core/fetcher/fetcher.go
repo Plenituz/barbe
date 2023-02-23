@@ -16,6 +16,10 @@ import (
 	"time"
 )
 
+const (
+	TagLatest = "latest"
+)
+
 var httpClient = &http.Client{
 	Timeout: 30 * time.Second,
 }
@@ -25,11 +29,13 @@ type FileDescription struct {
 	Content []byte
 }
 
+type UrlTransformer func(string) string
+
 //Fetches urls and cache their contents, will eventually also handle auth
 type Fetcher struct {
 	mutex          *sync.RWMutex
 	fileCache      map[string]FileDescription
-	UrlTransformer func(string) string
+	UrlTransformer []UrlTransformer
 }
 
 func NewFetcher() *Fetcher {
@@ -40,8 +46,8 @@ func NewFetcher() *Fetcher {
 }
 
 func (fetcher *Fetcher) Fetch(url string) (FileDescription, error) {
-	if fetcher.UrlTransformer != nil {
-		url = fetcher.UrlTransformer(url)
+	for _, transformer := range fetcher.UrlTransformer {
+		url = transformer(url)
 	}
 	fetcher.mutex.RLock()
 	if cached, ok := fetcher.fileCache[url]; ok {
@@ -64,7 +70,7 @@ func (fetcher *Fetcher) Fetch(url string) (FileDescription, error) {
 }
 
 // anyfront/manifest.json:v0.2.1
-var BarbeHubRegex = regexp.MustCompile(`^(?P<owner>[a-zA-Z0-9-_]+)/(?P<comp>[a-zA-Z0-9-_]+)\.(?P<ext>[a-zA-Z0-9.]+):?(?P<tag>[a-zA-Z0-9.]+)?$`)
+var BarbeHubRegex = regexp.MustCompile(`^(?P<owner>[a-zA-Z0-9-_*]+)/(?P<comp>[a-zA-Z0-9-_*]+)\.(?P<ext>[a-zA-Z0-9.*]+):?(?P<tag>[a-zA-Z0-9.*]+)?$`)
 
 const BarbeHubDomain = "hub.barbe.app"
 
@@ -113,6 +119,9 @@ func FetchFile(fileUrl string) ([]byte, error) {
 
 func MakeBarbeHubUrl(owner string, component string, ext string, tag string) string {
 	//https://hub.barbe.app/anyfront/anyfront.js:v0.2.1
+	if tag == "" {
+		tag = TagLatest
+	}
 	return fmt.Sprintf("https://%s/%s/%s%s:%s", BarbeHubDomain, owner, component, ext, tag)
 }
 
@@ -134,8 +143,17 @@ func ParseBarbeHubIdentifier(fileUrl string) (owner string, component string, ex
 	component = match[2]
 	ext = "." + strings.ToLower(match[3])
 	tag = match[4]
-	if tag == "" {
-		tag = "latest"
+	return
+}
+
+func ParseHubIdOrUrl(fileUrl string) (owner string, component string, ext string, tag string, e error) {
+	var err error
+	owner, component, ext, tag, err = ParseBarbeHubIdentifier(fileUrl)
+	if err != nil {
+		owner, component, ext, tag, err = ParseBarbeHubUrl(fileUrl)
+		if err != nil {
+			return "", "", "", "", err
+		}
 	}
 	return
 }

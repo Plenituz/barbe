@@ -90,15 +90,62 @@ func IterateDirectories(ctx context.Context, command core.MakeCommand, allFiles 
 				return errors.Wrap(err, "failed to create maker")
 			}
 
+			// anyfront/*.*=anyfront/*.*:dev
+			// */aws_iam_role=anyfront/aws_iam_role:dev
+			if os.Getenv("BARBE_VERSION_MAP") != "" {
+				versionMap := make(map[string]string)
+				pairs := strings.Split(os.Getenv("BARBE_VERSION_MAP"), ",")
+				for _, pair := range pairs {
+					split := strings.SplitN(pair, "=", 2)
+					if len(split) != 2 {
+						log.Ctx(ctx).Warn().Msgf("invalid version map entry: '%s'", pair)
+					}
+					versionMap[split[0]] = split[1]
+				}
+				//very slow but also very not meant to be used with a lot of entries
+				maker.Fetcher.UrlTransformer = append(maker.Fetcher.UrlTransformer, func(urlToTransform string) string {
+					owner, component, ext, tag, err := fetcher.ParseHubIdOrUrl(urlToTransform)
+					if err != nil {
+						return urlToTransform
+					}
+					for matcher, replacement := range versionMap {
+						matcherOwner, matcherComponent, matcherExt, matcherTag, err := fetcher.ParseHubIdOrUrl(matcher)
+						if err != nil {
+							return urlToTransform
+						}
+						ownerIsAMatch := matcherOwner == "*" || matcherOwner == owner
+						componentIsAMatch := matcherComponent == "*" || matcherComponent == component
+						extIsAMatch := matcherExt == ".*" || matcherExt == ext
+						tagIsAMatch := matcherTag == "*" || matcherTag == "" || matcherTag == tag
+						if ownerIsAMatch && componentIsAMatch && extIsAMatch && tagIsAMatch {
+							rOwner, rComponent, rExt, rTag, err := fetcher.ParseHubIdOrUrl(replacement)
+							if err != nil {
+								return replacement
+							}
+							if rOwner == "*" {
+								rOwner = owner
+							}
+							if rComponent == "*" {
+								rComponent = component
+							}
+							if rExt == ".*" {
+								rExt = ext
+							}
+							if rTag == "*" {
+								rTag = tag
+							}
+							return fetcher.MakeBarbeHubUrl(rOwner, rComponent, rExt, rTag)
+						}
+					}
+					return urlToTransform
+				})
+			}
 			if os.Getenv("BARBE_LOCAL") != "" {
 				localDirs := strings.Split(os.Getenv("BARBE_LOCAL"), ":")
-				maker.Fetcher.UrlTransformer = func(s string) string {
-					owner, component, ext, _, err := fetcher.ParseBarbeHubIdentifier(s)
+				maker.Fetcher.UrlTransformer = append(maker.Fetcher.UrlTransformer, func(s string) string {
+					owner, component, ext, _, err := fetcher.ParseHubIdOrUrl(s)
 					if err != nil {
-						_, component, ext, _, err = fetcher.ParseBarbeHubUrl(s)
-						if err != nil {
-							return s
-						}
+						return s
 					}
 					lookingFor := component + ext
 
@@ -137,7 +184,7 @@ func IterateDirectories(ctx context.Context, command core.MakeCommand, allFiles 
 						return depthI < depthJ
 					})
 					return found[0]
-				}
+				})
 			}
 
 			innerCtx := context.WithValue(ctx, "maker", maker)
