@@ -5,6 +5,7 @@ import (
 	"barbe/core/version"
 	"bufio"
 	"context"
+	"embed"
 	_ "embed"
 	"github.com/google/uuid"
 	"github.com/mitchellh/go-homedir"
@@ -14,6 +15,7 @@ import (
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
 	"io"
 	"os"
+	"path"
 	"strings"
 	"sync"
 	"time"
@@ -32,6 +34,9 @@ const (
 //go:embed js.wasm
 var spiderMonkey []byte
 
+//go:embed warmed_cache
+var warmedCache embed.FS
+
 type SpiderMonkeyExecutor struct {
 	logger zerolog.Logger
 
@@ -43,6 +48,55 @@ type SpiderMonkeyExecutor struct {
 	ctx        context.Context
 	cancel     context.CancelFunc
 	wgAllExecs sync.WaitGroup
+}
+
+func cloneFs(fromFs embed.FS, fromDir string, toDir string) error {
+	entries, err := fromFs.ReadDir(fromDir)
+	if err != nil {
+		return errors.Wrap(err, "failed to read dir '"+fromDir+"'")
+	}
+	for _, entry := range entries {
+		fromEntryFullPath := path.Join(fromDir, entry.Name())
+		toEntryFullPath := path.Join(toDir, entry.Name())
+		if entry.IsDir() {
+			err = cloneFs(fromFs, fromEntryFullPath, toEntryFullPath)
+			if err != nil {
+				return errors.Wrap(err, "failed to clone dir '"+fromEntryFullPath+"'")
+			}
+			continue
+		}
+
+		if _, err := os.Stat(toEntryFullPath); !os.IsNotExist(err) {
+			continue
+		}
+		err = (func() error {
+			fromFile, err := fromFs.Open(fromEntryFullPath)
+			if err != nil {
+				return errors.Wrap(err, "failed to open file '"+fromEntryFullPath+"'")
+			}
+			defer fromFile.Close()
+
+			err = os.MkdirAll(path.Dir(toEntryFullPath), 0755)
+			if err != nil {
+				return errors.Wrap(err, "failed to create dir '"+path.Dir(toEntryFullPath)+"'")
+			}
+			toFile, err := os.Create(toEntryFullPath)
+			if err != nil {
+				return errors.Wrap(err, "failed to create file '"+fromEntryFullPath+"'")
+			}
+			defer toFile.Close()
+
+			_, err = io.Copy(toFile, fromFile)
+			if err != nil {
+				return errors.Wrap(err, "failed to copy file '"+fromEntryFullPath+"'")
+			}
+			return nil
+		})()
+		if err != nil {
+			return errors.Wrap(err, "failed to clone file '"+fromEntryFullPath+"'")
+		}
+	}
+	return nil
 }
 
 func NewSpiderMonkeyExecutor(logger zerolog.Logger, outputDir string) (*SpiderMonkeyExecutor, error) {
@@ -57,6 +111,14 @@ func NewSpiderMonkeyExecutor(logger zerolog.Logger, outputDir string) (*SpiderMo
 	cacheDir, err := homedir.Expand(wazeroCachePath)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to expand wazero cache path")
+	}
+	err = os.MkdirAll(cacheDir, 0755)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create wazero cache dir")
+	}
+	err = cloneFs(warmedCache, "warmed_cache", cacheDir)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to clone warmed cache")
 	}
 
 	if _, err := os.Stat(cacheDir); !os.IsNotExist(err) {
