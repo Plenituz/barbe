@@ -7,7 +7,7 @@ import (
 	"embed"
 )
 
-//go:embed warmed_cache_darwin_amd64.go
+//go:embed wazero-v1.0.0-pre.9-amd64-darwin
 var WarmedCache embed.FS
 
 func init() {
