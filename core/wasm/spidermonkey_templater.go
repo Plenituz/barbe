@@ -55,7 +55,7 @@ func decodeSugarCoatedDatabags(databags interface{}) ([]core.DataBag, error) {
 	return output, nil
 }
 
-func NewSpiderMonkeyTemplater(logger zerolog.Logger, outputDir string) *SpiderMonkeyTemplater {
+func NewSpiderMonkeyTemplater(logger zerolog.Logger) *SpiderMonkeyTemplater {
 	wg := &sync.WaitGroup{}
 	templater := &SpiderMonkeyTemplater{
 		wg: wg,
@@ -64,7 +64,7 @@ func NewSpiderMonkeyTemplater(logger zerolog.Logger, outputDir string) *SpiderMo
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		engine, err := NewSpiderMonkeyExecutor(logger, outputDir)
+		engine, err := NewSpiderMonkeyExecutor(logger)
 		if err != nil {
 			templater.err = err
 			return

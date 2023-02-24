@@ -34,8 +34,8 @@ const (
 //go:embed js.wasm
 var spiderMonkey []byte
 
-//go:embed warmed_cache
-var warmedCache embed.FS
+//this may get populated by the warmed_cache depending on architecture
+var WarmedCache embed.FS
 
 type SpiderMonkeyExecutor struct {
 	logger zerolog.Logger
@@ -50,7 +50,7 @@ type SpiderMonkeyExecutor struct {
 	wgAllExecs sync.WaitGroup
 }
 
-func cloneFs(fromFs embed.FS, fromDir string, toDir string) error {
+func cloneFs(logger zerolog.Logger, fromFs embed.FS, fromDir string, toDir string) error {
 	entries, err := fromFs.ReadDir(fromDir)
 	if err != nil {
 		return errors.Wrap(err, "failed to read dir '"+fromDir+"'")
@@ -59,7 +59,7 @@ func cloneFs(fromFs embed.FS, fromDir string, toDir string) error {
 		fromEntryFullPath := path.Join(fromDir, entry.Name())
 		toEntryFullPath := path.Join(toDir, entry.Name())
 		if entry.IsDir() {
-			err = cloneFs(fromFs, fromEntryFullPath, toEntryFullPath)
+			err = cloneFs(logger, fromFs, fromEntryFullPath, toEntryFullPath)
 			if err != nil {
 				return errors.Wrap(err, "failed to clone dir '"+fromEntryFullPath+"'")
 			}
@@ -69,6 +69,7 @@ func cloneFs(fromFs embed.FS, fromDir string, toDir string) error {
 		if _, err := os.Stat(toEntryFullPath); !os.IsNotExist(err) {
 			continue
 		}
+		logger.Debug().Msg("restoring wazero cache '" + fromEntryFullPath + "' to '" + toEntryFullPath + "'")
 		err = (func() error {
 			fromFile, err := fromFs.Open(fromEntryFullPath)
 			if err != nil {
@@ -99,7 +100,7 @@ func cloneFs(fromFs embed.FS, fromDir string, toDir string) error {
 	return nil
 }
 
-func NewSpiderMonkeyExecutor(logger zerolog.Logger, outputDir string) (*SpiderMonkeyExecutor, error) {
+func NewSpiderMonkeyExecutor(logger zerolog.Logger) (*SpiderMonkeyExecutor, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	exec := &SpiderMonkeyExecutor{
@@ -116,7 +117,7 @@ func NewSpiderMonkeyExecutor(logger zerolog.Logger, outputDir string) (*SpiderMo
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create wazero cache dir")
 	}
-	err = cloneFs(warmedCache, "warmed_cache", cacheDir)
+	err = cloneFs(logger, WarmedCache, ".", cacheDir)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to clone warmed cache")
 	}

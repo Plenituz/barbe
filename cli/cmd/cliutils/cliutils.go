@@ -316,7 +316,7 @@ func makeMaker(ctx context.Context, command core.MakeCommand, dir string) (*core
 		//cue_templater.CueTemplater{},
 		jsonnet_templater.JsonnetTemplater{},
 		wasm.NewWasmTemplater(*zerolog.Ctx(ctx)),
-		wasm.NewSpiderMonkeyTemplater(*zerolog.Ctx(ctx), dir),
+		wasm.NewSpiderMonkeyTemplater(*zerolog.Ctx(ctx)),
 	}
 	maker.Transformers = []core.Transformer{
 		//the simplifier being first is very important, it simplifies syntax that is equivalent
