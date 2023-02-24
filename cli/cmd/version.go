@@ -4,6 +4,7 @@ import (
 	"barbe/core/version"
 	"fmt"
 	"github.com/spf13/cobra"
+	"runtime"
 )
 
 var versionCmd = &cobra.Command{
@@ -12,6 +13,6 @@ var versionCmd = &cobra.Command{
 	Args:         cobra.NoArgs,
 	SilenceUsage: true,
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Printf("barbe " + version.Version)
+		fmt.Printf("barbe " + version.Version + " (" + runtime.GOOS + "; " + runtime.GOARCH + ")")
 	},
 }
