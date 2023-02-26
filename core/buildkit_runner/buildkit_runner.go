@@ -393,7 +393,9 @@ func executeRunner(ctx context.Context, rConf runnerConfig, output *core.Concurr
 		return err
 	}
 
+	logBuffer := strings.Builder{}
 	dispatchLog := func(s string) {
+		logBuffer.WriteString(s + "\n")
 		log.Ctx(ctx).Debug().Msg(s)
 		state_display.GlobalState.AddLogLine(maker.CurrentStep, rConf.DisplayName, s)
 	}
@@ -420,8 +422,15 @@ func executeRunner(ctx context.Context, rConf runnerConfig, output *core.Concurr
 
 	err = executeLlbDefinition(ctx, rConf.DisplayName, bkClient, makeSolveOptions(ctx, rConf), dispatchLog, buildFunc)
 	if err != nil {
-		return err
+		logFilePath := path.Join(outputDir, strings.ReplaceAll(rConf.DisplayName, "/", "_")+".log")
+		errWrite := os.WriteFile(logFilePath, []byte(logBuffer.String()), 0644)
+		if errWrite != nil {
+			log.Ctx(ctx).Warn().Err(errWrite).Msg("error writing log file")
+		}
+		return errors.Wrap(err, "full command log available at '"+logFilePath+"'")
 	}
+	//not fully necessary, but release the memory before reading back files in case we need the memory
+	logBuffer.Reset()
 
 	readBackFiles := make([]fetcher.FileDescription, 0, len(rConf.ReadBackFiles))
 	for _, file := range rConf.ReadBackFiles {

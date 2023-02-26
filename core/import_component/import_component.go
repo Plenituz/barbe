@@ -7,6 +7,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/sync/errgroup"
+	"os"
 	"sync"
 )
 
@@ -129,7 +130,9 @@ func (t *ComponentImporter) Transform(ctx context.Context, data core.ConfigConta
 						return errors.Wrap(err, "error fetching component")
 					}
 
-					log.Ctx(ctx).Debug().Msgf("importing component '%s'", file.Name)
+					if os.Getenv("BARBE_VERBOSE") == "1" {
+						log.Ctx(ctx).Debug().Msgf("importing component '%s'", file.Name)
+					}
 					newBags, err := maker.ApplyComponent(ctx, file, *input)
 					if err != nil {
 						return errors.Wrap(err, "error applying component '"+componentUrl+"'")

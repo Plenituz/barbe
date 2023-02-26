@@ -372,7 +372,7 @@ func makeMaker(ctx context.Context, command core.MakeCommand, dir string) (*core
 	}
 	//default keys that are included because they are known to not
 	//contain sensitive information and are useful to many use cases
-	defaultEnv := []string{"AWS_REGION"}
+	defaultEnv := []string{"AWS_REGION", "BARBE_VERBOSE"}
 	for _, k := range defaultEnv {
 		if _, ok := maker.Env[k]; !ok {
 			if envVal, ok := os.LookupEnv(k); ok {

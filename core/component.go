@@ -174,7 +174,9 @@ func (maker *Maker) ApplyComponent(ctx context.Context, file fetcher.FileDescrip
 	//state_display.GlobalState.StartMinorStep(maker.CurrentStep, file.Name)
 	//defer state_display.GlobalState.EndMinorStep(maker.CurrentStep, file.Name)
 
-	log.Ctx(ctx).Debug().Msg("applying component '" + file.Name)
+	if os.Getenv("BARBE_VERBOSE") == "1" {
+		log.Ctx(ctx).Debug().Msg("applying component '" + file.Name)
+	}
 	output := NewConfigContainer()
 	for _, engine := range maker.Templaters {
 		//log.Ctx(ctx).Debug().Msg("applying template engine: '" + engine.Name() + "'")
