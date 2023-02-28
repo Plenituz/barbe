@@ -75,10 +75,10 @@ type Maker struct {
 	Env          map[string]string
 }
 
-func NewMaker(command MakeCommand) *Maker {
+func NewMaker(command MakeCommand, mFetcher *fetcher.Fetcher) *Maker {
 	maker := &Maker{
 		Command: command,
-		Fetcher: fetcher.NewFetcher(),
+		Fetcher: mFetcher,
 	}
 	stateHandler := NewStateHandler(maker)
 	//we always add a memory persister in case some templates rely on the state "API" to pass values between steps

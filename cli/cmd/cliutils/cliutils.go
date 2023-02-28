@@ -31,7 +31,109 @@ import (
 	"strings"
 )
 
+func makeConfiguredFetcher(ctx context.Context) *fetcher.Fetcher {
+	mFetcher := fetcher.NewFetcher()
+	// anyfront/*.*=anyfront/*.*:dev
+	// */aws_iam_role=anyfront/aws_iam_role:dev
+	if os.Getenv("BARBE_VERSION_MAP") != "" {
+		versionMap := make(map[string]string)
+		pairs := strings.Split(os.Getenv("BARBE_VERSION_MAP"), ",")
+		for _, pair := range pairs {
+			split := strings.SplitN(pair, "=", 2)
+			if len(split) != 2 {
+				log.Ctx(ctx).Warn().Msgf("invalid version map entry: '%s'", pair)
+			}
+			versionMap[split[0]] = split[1]
+		}
+		//very slow but also very not meant to be used with a lot of entries
+		mFetcher.UrlTransformer = append(mFetcher.UrlTransformer, func(urlToTransform string) string {
+			owner, component, ext, tag, err := fetcher.ParseHubIdOrUrl(urlToTransform)
+			if err != nil {
+				return urlToTransform
+			}
+			for matcher, replacement := range versionMap {
+				matcherOwner, matcherComponent, matcherExt, matcherTag, err := fetcher.ParseHubIdOrUrl(matcher)
+				if err != nil {
+					return urlToTransform
+				}
+				ownerIsAMatch := matcherOwner == "*" || matcherOwner == owner
+				componentIsAMatch := matcherComponent == "*" || matcherComponent == component
+				extIsAMatch := matcherExt == ".*" || matcherExt == ext
+				tagIsAMatch := matcherTag == "*" || matcherTag == "" || matcherTag == tag
+				if ownerIsAMatch && componentIsAMatch && extIsAMatch && tagIsAMatch {
+					rOwner, rComponent, rExt, rTag, err := fetcher.ParseHubIdOrUrl(replacement)
+					if err != nil {
+						return replacement
+					}
+					if rOwner == "*" {
+						rOwner = owner
+					}
+					if rComponent == "*" {
+						rComponent = component
+					}
+					if rExt == ".*" {
+						rExt = ext
+					}
+					if rTag == "*" {
+						rTag = tag
+					}
+					return fetcher.MakeBarbeHubUrl(rOwner, rComponent, rExt, rTag)
+				}
+			}
+			return urlToTransform
+		})
+	}
+	if os.Getenv("BARBE_LOCAL") != "" {
+		localDirs := strings.Split(os.Getenv("BARBE_LOCAL"), ":")
+		mFetcher.UrlTransformer = append(mFetcher.UrlTransformer, func(s string) string {
+			owner, component, ext, _, err := fetcher.ParseHubIdOrUrl(s)
+			if err != nil {
+				return s
+			}
+			lookingFor := component + ext
+
+			found := make([]string, 0)
+			for _, dir := range localDirs {
+				err = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+					if err != nil {
+						log.Ctx(ctx).Warn().Err(err).Msg("failed to walk dir in url transformer")
+						return nil
+					}
+					if d.Name() != lookingFor {
+						return nil
+					}
+					index := strings.Index(path, owner)
+					if index == -1 || index > strings.Index(path, component) {
+						return nil
+					}
+					found = append(found, path)
+					return nil
+				})
+				if err != nil {
+					log.Ctx(ctx).Warn().Err(err).Msg("failed to walk dir in url transformer")
+					continue
+				}
+			}
+			if len(found) == 0 {
+				//log.Ctx(ctx).Warn().Err(err).Msg("failed to find local component in url transformer")
+				return s
+			}
+			sort.SliceStable(found, func(i, j int) bool {
+				depthI := strings.Count(found[i], "/")
+				depthJ := strings.Count(found[j], "/")
+				if depthI == depthJ {
+					return found[i] < found[j]
+				}
+				return depthI < depthJ
+			})
+			return found[0]
+		})
+	}
+	return mFetcher
+}
+
 func ReadAllFilesMatching(ctx context.Context, globExprs []string) ([]fetcher.FileDescription, error) {
+	mFetcher := makeConfiguredFetcher(ctx)
 	allFiles := make([]fetcher.FileDescription, 0)
 	dedupMap := make(map[string]struct{})
 	for _, globExpr := range globExprs {
@@ -41,15 +143,12 @@ func ReadAllFilesMatching(ctx context.Context, globExprs []string) ([]fetcher.Fi
 		}
 
 		if len(matches) == 0 {
-			b, err := fetcher.FetchFile(globExpr)
+			f, err := mFetcher.Fetch(globExpr)
 			if err != nil {
 				log.Ctx(ctx).Debug().Err(err).Msg("fetching file failed")
 				continue
 			}
-			allFiles = append(allFiles, fetcher.FileDescription{
-				Name:    globExpr,
-				Content: b,
-			})
+			allFiles = append(allFiles, f)
 		} else {
 			for _, match := range matches {
 				fileContent, err := os.ReadFile(match)
@@ -88,103 +187,6 @@ func IterateDirectories(ctx context.Context, command core.MakeCommand, allFiles 
 			maker, err := makeMaker(ctx, command, path.Join(viper.GetString("output"), dir))
 			if err != nil {
 				return errors.Wrap(err, "failed to create maker")
-			}
-
-			// anyfront/*.*=anyfront/*.*:dev
-			// */aws_iam_role=anyfront/aws_iam_role:dev
-			if os.Getenv("BARBE_VERSION_MAP") != "" {
-				versionMap := make(map[string]string)
-				pairs := strings.Split(os.Getenv("BARBE_VERSION_MAP"), ",")
-				for _, pair := range pairs {
-					split := strings.SplitN(pair, "=", 2)
-					if len(split) != 2 {
-						log.Ctx(ctx).Warn().Msgf("invalid version map entry: '%s'", pair)
-					}
-					versionMap[split[0]] = split[1]
-				}
-				//very slow but also very not meant to be used with a lot of entries
-				maker.Fetcher.UrlTransformer = append(maker.Fetcher.UrlTransformer, func(urlToTransform string) string {
-					owner, component, ext, tag, err := fetcher.ParseHubIdOrUrl(urlToTransform)
-					if err != nil {
-						return urlToTransform
-					}
-					for matcher, replacement := range versionMap {
-						matcherOwner, matcherComponent, matcherExt, matcherTag, err := fetcher.ParseHubIdOrUrl(matcher)
-						if err != nil {
-							return urlToTransform
-						}
-						ownerIsAMatch := matcherOwner == "*" || matcherOwner == owner
-						componentIsAMatch := matcherComponent == "*" || matcherComponent == component
-						extIsAMatch := matcherExt == ".*" || matcherExt == ext
-						tagIsAMatch := matcherTag == "*" || matcherTag == "" || matcherTag == tag
-						if ownerIsAMatch && componentIsAMatch && extIsAMatch && tagIsAMatch {
-							rOwner, rComponent, rExt, rTag, err := fetcher.ParseHubIdOrUrl(replacement)
-							if err != nil {
-								return replacement
-							}
-							if rOwner == "*" {
-								rOwner = owner
-							}
-							if rComponent == "*" {
-								rComponent = component
-							}
-							if rExt == ".*" {
-								rExt = ext
-							}
-							if rTag == "*" {
-								rTag = tag
-							}
-							return fetcher.MakeBarbeHubUrl(rOwner, rComponent, rExt, rTag)
-						}
-					}
-					return urlToTransform
-				})
-			}
-			if os.Getenv("BARBE_LOCAL") != "" {
-				localDirs := strings.Split(os.Getenv("BARBE_LOCAL"), ":")
-				maker.Fetcher.UrlTransformer = append(maker.Fetcher.UrlTransformer, func(s string) string {
-					owner, component, ext, _, err := fetcher.ParseHubIdOrUrl(s)
-					if err != nil {
-						return s
-					}
-					lookingFor := component + ext
-
-					found := make([]string, 0)
-					for _, dir := range localDirs {
-						err = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
-							if err != nil {
-								log.Ctx(ctx).Warn().Err(err).Msg("failed to walk dir in url transformer")
-								return nil
-							}
-							if d.Name() != lookingFor {
-								return nil
-							}
-							index := strings.Index(path, owner)
-							if index == -1 || index > strings.Index(path, component) {
-								return nil
-							}
-							found = append(found, path)
-							return nil
-						})
-						if err != nil {
-							log.Ctx(ctx).Warn().Err(err).Msg("failed to walk dir in url transformer")
-							continue
-						}
-					}
-					if len(found) == 0 {
-						//log.Ctx(ctx).Warn().Err(err).Msg("failed to find local component in url transformer")
-						return s
-					}
-					sort.SliceStable(found, func(i, j int) bool {
-						depthI := strings.Count(found[i], "/")
-						depthJ := strings.Count(found[j], "/")
-						if depthI == depthJ {
-							return found[i] < found[j]
-						}
-						return depthI < depthJ
-					})
-					return found[0]
-				})
 			}
 
 			innerCtx := context.WithValue(ctx, "maker", maker)
@@ -305,7 +307,7 @@ func groupFilesByDirectory(files []fetcher.FileDescription) (map[string][]fetche
 }
 
 func makeMaker(ctx context.Context, command core.MakeCommand, dir string) (*core.Maker, error) {
-	maker := core.NewMaker(command)
+	maker := core.NewMaker(command, makeConfiguredFetcher(ctx))
 	maker.OutputDir = dir
 	maker.Parsers = []core.Parser{
 		hcl_parser.HclParser{},
