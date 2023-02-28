@@ -303,7 +303,39 @@ func groupFilesByDirectory(files []fetcher.FileDescription) (map[string][]fetche
 		dir := filepath.Dir(file.Name)
 		result[dir] = append(result[dir], file)
 	}
+	dirs := make([]string, 0)
+	for dir := range result {
+		dirs = append(dirs, dir)
+	}
+	commonPrefix := findCommonPrefix(dirs)
+	if commonPrefix != "" {
+		modifiedResult := make(map[string][]fetcher.FileDescription)
+		for dir, files := range result {
+			modifiedDir := strings.TrimPrefix(dir, commonPrefix)
+			if modifiedDir == "" {
+				modifiedDir = "."
+			}
+			modifiedResult[modifiedDir] = files
+		}
+		result = modifiedResult
+	}
 	return result, nil
+}
+
+func findCommonPrefix(paths []string) string {
+	if len(paths) == 0 {
+		return ""
+	}
+	if len(paths) == 1 {
+		return paths[0]
+	}
+	prefix := paths[0]
+	for _, p := range paths[1:] {
+		for !strings.HasPrefix(p, prefix) {
+			prefix = prefix[:len(prefix)-1]
+		}
+	}
+	return prefix
 }
 
 func makeMaker(ctx context.Context, command core.MakeCommand, dir string) (*core.Maker, error) {
