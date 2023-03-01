@@ -71,7 +71,12 @@ func (t GcpTokenProviderTransformer) Transform(ctx context.Context, data core.Co
 	return *output, nil
 }
 
+var gcpTokenMutex sync.Mutex
+
 func populateGcpToken(ctx context.Context, dataBag core.DataBag) (core.DataBag, error) {
+	//we need to prevent 2 credentials requests at the same time to avoid the browser opening twice
+	gcpTokenMutex.Lock()
+	defer gcpTokenMutex.Unlock()
 	optional := false
 	if dataBag.Value.Type == core.TokenTypeObjectConst {
 		optionalTokens := core.GetObjectKeyValues("optional", dataBag.Value.ObjectConst)
