@@ -11,6 +11,7 @@ import (
 	"github.com/mitchellh/go-homedir"
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
 	"io"
@@ -290,10 +291,24 @@ func (s *SpiderMonkeyExecutor) Execute(ctx context.Context, protocol RpcProtocol
 		runtime = s.wasmRuntimeCompiled
 		spiderMonkeyCode = s.spiderMonkeyCodeCompiled
 	}
+	if runtime == nil || spiderMonkeyCode == nil {
+		log.Ctx(ctx).Error().Msg("no runtime or spidermonkey code available. Trying to clear execution cache: `rm -rf ~/.cache/barbe`")
+		cacheDir, err := homedir.Expand(wazeroCachePath)
+		if err != nil {
+			return errors.Wrap(err, "failed to expand wazero cache path")
+		}
+		err = os.RemoveAll(cacheDir)
+		if err != nil {
+			return errors.Wrap(err, "no runtime or spidermonkey code available. Try clearing the execution cache: `rm -rf ~/.cache/barbe`")
+		}
+		return errors.New("no runtime or spidermonkey code available. Execution cache cleared, please try again with correct permissions")
+	}
 
 	t := time.Now()
 	mod, err := runtime.InstantiateModule(s.ctx, spiderMonkeyCode, config)
-	s.logger.Debug().Msgf("'%s' execution took, %s", fileName, time.Since(t))
+	if os.Getenv("BARBE_VERBOSE") == "1" {
+		s.logger.Debug().Msgf("'%s' execution took, %s", fileName, time.Since(t))
+	}
 	if err != nil {
 		//fmt.Println("error:", err)
 		return errors.Wrap(err, "error instantiating module")
