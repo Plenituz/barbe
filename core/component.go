@@ -16,7 +16,9 @@ import (
 func (maker *Maker) ApplyComponents(ctx context.Context, container *ConfigContainer) error {
 	for i := 0; i < maxComponentLoops; i++ {
 		beforeApply := container.Clone()
-		log.Ctx(ctx).Debug().Msgf("%s master, loop %d", maker.CurrentStep, i)
+		if os.Getenv("BARBE_VERBOSE") == "1" {
+			log.Ctx(ctx).Debug().Msgf("%s master, loop %d", maker.CurrentStep, i)
+		}
 		err := maker.applyComponentsLoop(ctx, container)
 		if err != nil {
 			return err
@@ -36,7 +38,9 @@ func (maker *Maker) ApplyComponents(ctx context.Context, container *ConfigContai
 func (maker *Maker) applyComponentsLoop(ctx context.Context, container *ConfigContainer) error {
 	componentInput := container
 	for i := 0; i < maxComponentLoops; i++ {
-		log.Ctx(ctx).Debug().Msgf("applying components, loop %d", i)
+		if os.Getenv("BARBE_VERBOSE") == "1" {
+			log.Ctx(ctx).Debug().Msgf("applying components, loop %d", i)
+		}
 		eg := errgroup.Group{}
 		eg.SetLimit(50)
 		newDatabags := NewConcurrentConfigContainer()
