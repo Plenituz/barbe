@@ -5,8 +5,7 @@ Barbe relies on the Docker CLI and a container runtime to run. If you're not sur
 ## Mac
 
 ```bash
-curl -fsSL https://hub.barbe.app/install.sh -o install-barbe.sh
-sh install-barbe.sh
+curl -fsSL https://hub.barbe.app/install.sh | sh -
 
 # check if it's working
 barbe
@@ -15,8 +14,7 @@ barbe
 ## Linux
 
 ```bash
-curl -fsSL https://hub.barbe.app/install.sh -o install-barbe.sh
-sudo sh install-barbe.sh
+curl -fsSL https://hub.barbe.app/install.sh | sudo sh -
 
 # check if it's working
 barbe

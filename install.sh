@@ -2,12 +2,10 @@
 
 # to run this:
 # on mac:
-# curl -fsSL https://hub.barbe.app/install.sh -o install-barbe.sh
-# sh install-barbe.sh
+# curl -fsSL https://hub.barbe.app/install.sh | sh -
 #
 # on linux:
-# curl -fsSL https://hub.barbe.app/install.sh -o install-barbe.sh
-# sudo sh install-barbe.sh
+# curl -fsSL https://hub.barbe.app/install.sh | sudo sh -
 
 set -e
 
