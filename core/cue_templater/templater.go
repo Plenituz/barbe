@@ -2,6 +2,7 @@ package cue_templater
 
 import (
 	"barbe/core"
+	"barbe/core/fetcher"
 	"context"
 	"cuelang.org/go/cue"
 	"cuelang.org/go/cue/cuecontext"
@@ -26,7 +27,7 @@ type sugarBag struct {
 	Value  map[string]interface{} `cue:"value"`
 }
 
-func applyTemplate(ctx context.Context, container *core.ConfigContainer, templates []core.FileDescription) error {
+func applyTemplate(ctx context.Context, container *core.ConfigContainer, templates []fetcher.FileDescription) error {
 	cueCtx := cuecontext.New()
 
 	valueCtx := cueCtx.Encode(map[string]interface{}{
