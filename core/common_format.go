@@ -227,6 +227,14 @@ func (d DataBag) MergeWith(other DataBag) (DataBag, error) {
 
 type DataBagGroup []DataBag
 
+func (d DataBagGroup) Clone() DataBagGroup {
+	clone := make(DataBagGroup, len(d))
+	for i, bag := range d {
+		clone[i] = bag
+	}
+	return clone
+}
+
 func (d DataBagGroup) MergeWith(other DataBagGroup) (DataBagGroup, error) {
 	var err error
 	groupByLabels := make(map[string]DataBag)
@@ -337,6 +345,19 @@ func (c *ConfigContainer) GetDataBagGroup(bagType string, bagName string) DataBa
 	return nil
 }
 
+func (c *ConfigContainer) GetDatabagGroupItem(bagType string, bagName string, labels []string) *DataBag {
+	group := c.GetDataBagGroup(bagType, bagName)
+	if group == nil {
+		return nil
+	}
+	for _, bag := range group {
+		if reflect.DeepEqual(bag.Labels, labels) {
+			return &bag
+		}
+	}
+	return nil
+}
+
 func (c *ConfigContainer) Insert(bag DataBag) error {
 	if _, ok := c.DataBags[bag.Type]; !ok {
 		c.DataBags[bag.Type] = make(map[string]DataBagGroup)
@@ -349,7 +370,7 @@ func (c *ConfigContainer) Insert(bag DataBag) error {
 	return err
 }
 
-//Contains this only matches on the type/name/labels, not the content of the databag
+// Contains this only matches on the type/name/labels, not the content of the databag
 func (c *ConfigContainer) Contains(bag DataBag) bool {
 	if m, ok := c.DataBags[bag.Type]; ok {
 		if group, ok := m[bag.Name]; ok {
