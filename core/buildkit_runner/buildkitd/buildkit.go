@@ -28,8 +28,8 @@ var (
 
 const (
 	image         = "moby/buildkit"
-	containerName = "barbe-buildkitd"
-	volumeName    = "barbe-buildkitd"
+	containerName = "barbe-buildkitd2"
+	volumeName    = "barbe-buildkitd2"
 
 	buildkitdLockPath = "~/.config/barbe/.buildkitd.lock"
 	// Long timeout to allow for slow image pulls of
