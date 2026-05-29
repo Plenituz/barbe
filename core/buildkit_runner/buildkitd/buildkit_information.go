@@ -46,6 +46,25 @@ func GetDockerSocketLocation() (string, error) {
 	return currentContext, nil
 }
 
+func IsDockerRootless(ctx context.Context) (bool, error) {
+	cmd := exec.CommandContext(ctx, "docker", "info", "--format", "{{json .SecurityOptions}}")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return false, err
+	}
+
+	var securityOptions []string
+	if err := json.Unmarshal(output, &securityOptions); err != nil {
+		return false, err
+	}
+	for _, option := range securityOptions {
+		if strings.Contains(strings.ToLower(option), "rootless") {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func getBuildkitInformation(ctx context.Context) (*BuildkitInformation, error) {
 	formatString := "{{.Config.Image}};{{.State.Running}};{{if index .NetworkSettings.Networks \"host\"}}{{\"true\"}}{{else}}{{\"false\"}}{{end}}"
 	cmd := exec.CommandContext(ctx,

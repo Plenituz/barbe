@@ -4,6 +4,7 @@ import (
 	"barbe/core"
 	"barbe/core/chown_util"
 	"context"
+
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/pkg/errors"
@@ -77,7 +78,9 @@ func populateAwsSession(ctx context.Context, dataBag core.DataBag) (core.DataBag
 	}
 
 	opts := session.Options{}
-	config := aws.Config{}
+	config := aws.Config{
+		CredentialsChainVerboseErrors: aws.Bool(true),
+	}
 	if profile != nil {
 		opts.Profile = *profile
 	}

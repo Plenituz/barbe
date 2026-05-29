@@ -90,6 +90,12 @@ func checkBuildkit(ctx context.Context) error {
 	defer lock.Unlock()
 	lg.Debug().Msg("acquired buildkitd lock")
 
+	dockerRootless, err := IsDockerRootless(ctx)
+	if err != nil {
+		return err
+	}
+	expectedHostNetwork := !dockerRootless
+
 	// check status of buildkitd container
 	config, err := getBuildkitInformation(ctx)
 	if err != nil {
@@ -108,7 +114,7 @@ func checkBuildkit(ctx context.Context) error {
 			lg.Debug().Err(err).Msg("error while removing buildkit")
 		}
 
-		if err := installBuildkit(ctx); err != nil {
+		if err := installBuildkit(ctx, dockerRootless); err != nil {
 			return err
 		}
 	} else {
@@ -117,19 +123,21 @@ func checkBuildkit(ctx context.Context) error {
 			Str("version", config.Version).
 			Bool("isActive", config.IsActive).
 			Bool("haveHostNetwork", config.HaveHostNetwork).
+			Bool("dockerRootless", dockerRootless).
 			Msg("detected buildkit config")
 
-		if config.Version != vendoredVersion || !config.HaveHostNetwork {
+		if config.Version != vendoredVersion || config.HaveHostNetwork != expectedHostNetwork {
 			lg.
 				Info().
 				Str("version", vendoredVersion).
 				Bool("have host network", config.HaveHostNetwork).
+				Bool("dockerRootless", dockerRootless).
 				Msg("upgrading buildkit")
 
 			if err := removeBuildkit(ctx); err != nil {
 				return err
 			}
-			if err := installBuildkit(ctx); err != nil {
+			if err := installBuildkit(ctx, dockerRootless); err != nil {
 				return err
 			}
 		}
@@ -142,6 +150,20 @@ func checkBuildkit(ctx context.Context) error {
 			if err := startBuildkit(ctx); err != nil {
 				return err
 			}
+		}
+	}
+
+	if err := waitBuildkit(ctx); err != nil {
+		lg.
+			Info().
+			Err(err).
+			Bool("dockerRootless", dockerRootless).
+			Msg("recreating unresponsive buildkit")
+		if err := removeBuildkit(ctx); err != nil {
+			return err
+		}
+		if err := installBuildkit(ctx, dockerRootless); err != nil {
+			return err
 		}
 	}
 
@@ -196,11 +218,13 @@ func startBuildkit(ctx context.Context) error {
 
 // Pull and run the buildkit daemon with a proper configuration
 // If the buildkit daemon is already configured, use startBuildkit
-func installBuildkit(ctx context.Context) error {
+func installBuildkit(ctx context.Context, dockerRootless bool) error {
+	buildkitImage := image + ":" + vendoredVersion
 	lg := log.
 		Ctx(ctx).
 		With().
 		Str("version", vendoredVersion).
+		Bool("dockerRootless", dockerRootless).
 		Logger()
 
 	lg.Debug().Msg("pulling buildkit image")
@@ -208,7 +232,7 @@ func installBuildkit(ctx context.Context) error {
 	cmd := exec.CommandContext(ctx,
 		"docker",
 		"pull",
-		image+":"+vendoredVersion,
+		buildkitImage,
 	)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -220,23 +244,26 @@ func installBuildkit(ctx context.Context) error {
 		return err
 	}
 
-	// FIXME: buildkitd currently runs without network isolation (--net=host)
-	// in order for containers to be able to reach localhost.
-	// This is required for things such as kubectl being able to
-	// reach a KinD/minikube cluster locally
-	// #nosec
-	cmd = exec.CommandContext(ctx,
-		"docker",
-		"run",
-		"--net=host",
+	args := []string{"run"}
+	if !dockerRootless {
+		// FIXME: buildkitd currently runs without network isolation (--net=host)
+		// in order for containers to be able to reach localhost.
+		// This is required for things such as kubectl being able to
+		// reach a KinD/minikube cluster locally
+		args = append(args, "--net=host")
+	}
+	args = append(args,
 		"-d",
 		"--restart", "always",
 		"-v", volumeName+":/var/lib/buildkit",
 		"--name", containerName,
 		"--privileged",
-		image+":"+vendoredVersion,
+		buildkitImage,
 		"--debug",
 	)
+
+	// #nosec
+	cmd = exec.CommandContext(ctx, "docker", args...)
 	output, err = cmd.CombinedOutput()
 	if err != nil {
 		// If the daemon failed to start because it's already running,
