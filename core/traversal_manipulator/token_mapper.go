@@ -27,8 +27,8 @@ func (t *TraversalManipulator) mapTokens(ctx context.Context, data core.ConfigCo
 						return errors.Wrap(err, fmt.Sprintf("error parsing token_map databag at '%s[%d][%d]'", name, i, j))
 					}
 					t.tokenMaps = append(t.tokenMaps, parsed)
-					t.tokenMapsMutex.Unlock()
 				}
+				t.tokenMapsMutex.Unlock()
 			}
 		}
 	}

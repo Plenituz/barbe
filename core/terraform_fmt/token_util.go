@@ -3,14 +3,15 @@ package terraform_fmt
 import (
 	"barbe/core"
 	"errors"
+	"reflect"
+
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/zclconf/go-cty/cty"
-	"reflect"
 )
 
-//this is somewhat based on hclwrite.appendTokensForValue
+// this is somewhat based on hclwrite.appendTokensForValue
 func syntaxTokenToHclTokens(item core.SyntaxToken, parentName *string) (hclwrite.Tokens, error) {
 	switch item.Type {
 	default:
@@ -412,10 +413,6 @@ func syntaxTokenToHclTokens(item core.SyntaxToken, parentName *string) (hclwrite
 			if err != nil {
 				return nil, err
 			}
-			keyExpr, err := syntaxTokenToHclTokens(*item.ForKeyExpr, nil)
-			if err != nil {
-				return nil, err
-			}
 
 			toks = append(toks, &hclwrite.Token{
 				Type:  hclsyntax.TokenOBrace,
@@ -448,11 +445,18 @@ func syntaxTokenToHclTokens(item core.SyntaxToken, parentName *string) (hclwrite
 				Type:  hclsyntax.TokenColon,
 				Bytes: []byte(`:`),
 			})
-			toks = append(toks, keyExpr...)
-			toks = append(toks, &hclwrite.Token{
-				Type:  hclsyntax.TokenFatArrow,
-				Bytes: []byte(`=>`),
-			})
+			if item.ForKeyExpr != nil {
+				keyExpr, err := syntaxTokenToHclTokens(*item.ForKeyExpr, nil)
+				if err != nil {
+					return nil, err
+				}
+				toks = append(toks, keyExpr...)
+				toks = append(toks, &hclwrite.Token{
+					Type:  hclsyntax.TokenFatArrow,
+					Bytes: []byte(`=>`),
+				})
+			}
+
 			toks = append(toks, valExpr...)
 			if item.ForCondExpr != nil {
 				condExpr, err := syntaxTokenToHclTokens(*item.ForCondExpr, nil)
@@ -559,7 +563,7 @@ func primitiveToCty(val interface{}) (cty.Value, error) {
 	}
 }
 
-//if isRelative is true the first element will be a TraverseAttr instead of a TraverseRoot
+// if isRelative is true the first element will be a TraverseAttr instead of a TraverseRoot
 func traversalToTokens(itemTraversal []core.Traverse, isRelative bool) (hclwrite.Tokens, error) {
 	traversal := make(hcl.Traversal, 0, len(itemTraversal))
 	for i, traverse := range itemTraversal {

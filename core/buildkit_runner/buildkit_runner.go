@@ -9,12 +9,14 @@ import (
 	"barbe/core/fetcher"
 	"barbe/core/state_display"
 	"bufio"
+	"bytes"
 	"context"
 	"github.com/containerd/containerd/platforms"
 	"github.com/docker/cli/cli/config"
 	bk "github.com/moby/buildkit/client"
 	"github.com/moby/buildkit/client/llb"
 	"github.com/moby/buildkit/frontend/dockerfile/dockerfile2llb"
+	"github.com/moby/buildkit/frontend/dockerfile/dockerignore"
 	bkgw "github.com/moby/buildkit/frontend/gateway/client"
 	"github.com/moby/buildkit/session"
 	"github.com/moby/buildkit/session/auth/authprovider"
@@ -25,6 +27,7 @@ import (
 	"io"
 	"os"
 	"path"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -130,6 +133,8 @@ type runnerConfig struct {
 	ExportedFiles       map[string]string
 	ReadBackFiles       []string
 	Excludes            []string
+	SourcePaths         []string // nil selects the entire working directory
+	UseRootDockerignore bool
 
 	Dockerfile *string
 	NoCache    bool
@@ -151,6 +156,32 @@ func parseRunnerConfig(ctx context.Context, objConst []core.ObjectConstItem) (ru
 			return runnerConfig{}, errors.Wrap(err, "error extracting dockerfile value on buildkit_run_in_container")
 		}
 		output.Dockerfile = &dockerfile
+	}
+
+	if paths := core.GetObjectKeyValues("source_paths", objConst); len(paths) > 0 {
+		if paths[0].Type != core.TokenTypeArrayConst {
+			return runnerConfig{}, errors.New("source_paths must be an array of project-relative paths")
+		}
+		output.SourcePaths = make([]string, 0, len(paths[0].ArrayConst))
+		for _, item := range paths[0].ArrayConst {
+			src, err := core.ExtractAsStringValue(item)
+			if err != nil {
+				return runnerConfig{}, errors.Wrap(err, "reading source_paths")
+			}
+			// Resolve paths from the context root, as COPY --from=src does.
+			clean := path.Join(".", path.Clean("/"+filepath.ToSlash(src)))
+			if src == "" || filepath.VolumeName(clean) != "" {
+				return runnerConfig{}, errors.Errorf("invalid project source path %q", src)
+			}
+			output.SourcePaths = append(output.SourcePaths, clean)
+		}
+	}
+	if setting := core.GetObjectKeyValues("use_root_dockerignore", objConst); len(setting) > 0 {
+		enabled, err := core.ExtractAsBool(setting[0])
+		if err != nil {
+			return runnerConfig{}, errors.Wrap(err, "reading use_root_dockerignore")
+		}
+		output.UseRootDockerignore = enabled
 	}
 
 	readBackFilesToken := core.GetObjectKeyValues("read_back", objConst)
@@ -296,6 +327,29 @@ func parseRunnerConfig(ctx context.Context, objConst []core.ObjectConstItem) (ru
 	return output, nil
 }
 
+func namedSource(config runnerConfig) (llb.State, error) {
+	src := llb.Scratch()
+	if config.SourcePaths == nil || len(config.SourcePaths) > 0 {
+		opts := []llb.LocalOption{llb.FollowPaths(config.SourcePaths)}
+		if config.UseRootDockerignore {
+			data, err := os.ReadFile(".dockerignore")
+			if err != nil && !os.IsNotExist(err) {
+				return src, err
+			}
+			patterns, err := dockerignore.ReadAll(bytes.NewReader(data))
+			if err != nil {
+				return src, err
+			}
+			opts = append(opts, llb.ExcludePatterns(patterns))
+		}
+		src = src.File(llb.Copy(llb.Local("src", opts...), "./", "/"))
+	}
+	for name, content := range config.InputFiles {
+		src = src.File(llb.Mkfile(name, 0755, []byte(content)))
+	}
+	return src.Dir("/"), nil
+}
+
 func buildLlbDefinition(ctx context.Context, runnerConfig runnerConfig, bkgwClient bkgw.Client, platform *specs.Platform) (*llb.State, error) {
 	dockerOpts := dockerfile2llb.ConvertOpt{
 		Excludes:       runnerConfig.Excludes,
@@ -305,15 +359,8 @@ func buildLlbDefinition(ctx context.Context, runnerConfig runnerConfig, bkgwClie
 			if !strings.HasPrefix(name, "docker.io/library/src") {
 				return nil, nil, nil
 			}
-			//this is when we have a "COPY --from=src ./ /src"
-			buildContext := llb.Scratch().
-				File(llb.Copy(llb.Local("src"), "./", "/")).
-				Dir("/")
-			for name, content := range runnerConfig.InputFiles {
-				buildContext = buildContext.File(llb.Mkfile(name, 0755, []byte(content)))
-			}
-
-			return &buildContext, nil, nil
+			buildContext, err := namedSource(runnerConfig)
+			return &buildContext, nil, err
 		},
 	}
 	if runnerConfig.NoCache {
