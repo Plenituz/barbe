@@ -491,6 +491,22 @@ dist
 For more details on the barbe library you can check out the [Barbe std](./barbe-std.md) page.
 You can also check out the [Barbe-serverless](https://github.com/Plenituz/barbe-serverless) repo to see how the templates are made
 
+### Limiting the BuildKit source context
+
+In a `buildkit_run_in_container` block, `COPY --from=src` reads from the project working directory. Set `source_paths` to the project-relative files or directories the job needs to reduce the data sent to BuildKit. Paths keep their original locations inside `src`.
+
+```hcl
+buildkit_run_in_container "read_module" {
+  source_paths = ["barbe_dist/my_module"]
+  dockerfile = <<EOF
+FROM scratch
+COPY --from=src barbe_dist/my_module /module
+EOF
+}
+```
+
+Omitting `source_paths` makes the whole working directory available. An empty list creates a source containing only the files supplied in `input_files`. To also apply the working directory's `.dockerignore` rules when present, set `use_root_dockerignore = true`. Barbe adds `input_files` after filtering the host files.
+
 ### Tips on debugging/developing templates
 
 - Use `std.trace` to print out values in your template
